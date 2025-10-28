@@ -1,0 +1,67 @@
+/* Minimal Tailwind subset for templates */
+.flex{display:flex}
+.flex-1{flex:1 1 0%}
+.flex-col{flex-direction:column}
+.items-start{align-items:flex-start}
+.items-center{align-items:center}
+.justify-center{justify-content:center}
+.grid{display:grid}
+.grid-cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.grid-cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.gap-4{gap:1rem}
+.gap-6{gap:1.5rem}
+.gap-12{gap:3rem}
+.space-y-3> :not([hidden])~ :not([hidden]){margin-top:0.75rem}
+.space-y-4> :not([hidden])~ :not([hidden]){margin-top:1rem}
+.space-y-6> :not([hidden])~ :not([hidden]){margin-top:1.5rem}
+.text-left{text-align:left}
+.text-center{text-align:center}
+.text-right{text-align:right}
+.text-sm{font-size:0.875rem;line-height:1.25rem}
+.text-xs{font-size:0.75rem;line-height:1rem}
+.text-lg{font-size:1.125rem;line-height:1.75rem}
+.text-2xl{font-size:1.5rem;line-height:2rem}
+.text-3xl{font-size:1.875rem;line-height:2.25rem}
+.text-4xl{font-size:2.25rem;line-height:2.5rem}
+.font-bold{font-weight:700}
+.bg-gray-100{background-color:#f3f4f6}
+.bg-red-100{background-color:#fee2e2}
+.bg-white{background-color:#ffffff}
+.text-gray-400{color:#9ca3af}
+.text-gray-500{color:#6b7280}
+.text-gray-600{color:#4b5563}
+.text-gray-700{color:#374151}
+.text-green-500{color:#10b981}
+.text-red-600{color:#dc2626}
+.text-black{color:#000}
+.mt-1{margin-top:0.25rem}
+.mt-2{margin-top:0.5rem}
+.mt-4{margin-top:1rem}
+.mt-6{margin-top:1.5rem}
+.mb-2{margin-bottom:0.5rem}
+.mb-3{margin-bottom:0.75rem}
+.mb-4{margin-bottom:1rem}
+.mb-8{margin-bottom:2rem}
+.mr-2{margin-right:0.5rem}
+.mr-3{margin-right:0.75rem}
+.p-2{padding:0.5rem}
+.p-3{padding:0.75rem}
+.p-4{padding:1rem}
+.p-6{padding:1.5rem}
+.w-full{width:100%}
+.h-64{height:16rem}
+.relative{position:relative}
+.rounded{border-radius:0.25rem}
+.rounded-full{border-radius:9999px}
+.border{border-width:1px}
+.border-b{border-bottom-width:1px}
+.border-gray-200{border-color:#e5e7eb}
+.w-10{width:10%}
+.w-20{width:20%}
+.w-30{width:30%}
+.w-40{width:40%}
+.w-50{width:50%}
+.w-60{width:60%}
+.w-70{width:70%}
+.w-100{width:100%}
+.min-h-screen{min-height:100vh}

@@ -1,0 +1,1306 @@
+toshimichi.suzuki@P86934 パワポ作成AI % tree
+.
+├── docs
+│   ├── 1.text
+│   ├── HTMLプロンプト.text
+│   ├── How to use PPTgenjs.txt
+│   └── パワポプロンプト.text
+├── images
+│   ├── Arrow.png
+│   ├── download.png
+│   ├── icon128.png
+│   ├── icon16.png
+│   ├── icon32.png
+│   ├── icon48.png
+│   └── reload.png
+├── logo.png
+├── manifest.json
+├── other
+│   ├── jquery.min.js
+│   ├── jszip.min.js
+│   └── pptxgen.bundle.js
+├── popup.html
+├── popup.js
+├── pptxjs
+│   ├── LICENSE
+│   ├── README.md
+│   ├── Sample_12.pptx
+│   ├── css
+│   │   ├── nv.d3.min.css
+│   │   └── pptxjs.css
+│   ├── filereader.js
+│   ├── index.html
+│   └── js
+│       ├── d3.min.js
+│       ├── dingbat.js
+│       ├── divs2slides.js
+│       ├── divs2slides.min.js
+│       ├── filereader.js
+│       ├── jquery-1.11.3.min.js
+│       ├── jquery.fullscreen-min.js
+│       ├── jszip.min.js
+│       ├── nv.d3.min.js
+│       ├── pptxjs.js
+│       └── pptxjs.min.js
+├── preview
+│   ├── jsonDetector.js
+│   ├── previewManager.js
+│   ├── slideGenerator.js
+│   └── ui.js
+└── slideCreator.js
+
+
+
+cat slideCreator.js jsonDetector.js previewManager.js slideGenerator.js ui.js popup.html popup.js manifest.json
+/**
+ * slideCreator.js
+ * =====================================================================
+ * JSONデータからPowerPointスライドを生成するコアモジュール
+ *
+ * ・PptxGenJSを利用し、スライドマスター（ロゴ挿入／スライド番号）を定義
+ * ・テキスト／アジェンダ／テーブル／チャート／スケジュール／マイルストーン
+ *   各種スライドレイアウトとスタイルを実装
+ * ・ポップアップ用にフォントサイズを調整可能
+ * ・デフォルトスライドサンプルを提供
+ *
+ * エクスポートAPI:
+ *   - createSlideByType(slide, data, pptx, isPopup)
+ *   - defineMasterSlide(pptx, logoPath)
+ *   - getDefaultSlides()
+ *   - createSlidesFromJson(pptx, jsonData, isPopup)
+ *
+ * Usage:
+ *   const pptx = new PptxGenJS();
+ *   SlideCreator.defineMasterSlide(pptx, logoPath);
+ *   SlideCreator.createSlidesFromJson(pptx, jsonString, false);
+ */
+
+const SlideCreator = (function() {
+    // 定数定義
+    const LAYOUT_WIDTH = 13.33;
+    const LAYOUT_HEIGHT = 7.5;
+    const MASTER_SLIDE_TITLE = 'MASTER_SLIDE';
+    
+    // フォントサイズと書体の定数
+    const TITLE_FONT_SIZE = 24;
+    const HEADING_FONT_SIZE = 18;
+    const BODY_FONT_SIZE = 16;
+    const DEFAULT_FONT_FACE = 'Rakuten Sans JP';
+    
+    // ポップアップ用の定数（ポップアップでは少し大きめのフォントを使用）
+    const POPUP_TITLE_FONT_SIZE = 36;
+    const POPUP_HEADING_FONT_SIZE = 20;
+    const POPUP_BODY_FONT_SIZE = 16;
+    
+    // スライドタイプごとのスライド作成関数
+    function createSlideByType(slide, data, pptx, isPopup = false) {
+      // slidetype または type を取得（slidetypeを優先）
+      const slideType = data.slidetype || data.type || 'default';
+      
+      // フォントサイズを決定（ポップアップかどうかで分岐）
+      const titleSize = isPopup ? POPUP_TITLE_FONT_SIZE : TITLE_FONT_SIZE;
+      const headingSize = isPopup ? POPUP_HEADING_FONT_SIZE : HEADING_FONT_SIZE;
+      const bodySize = isPopup ? POPUP_BODY_FONT_SIZE : BODY_FONT_SIZE;
+      
+      // 利用可能なスライドタイプ
+      if (slideType === 'default') {
+        createDefaultSlide(slide, data, titleSize, headingSize, bodySize);
+      } else if (slideType === 'agenda') {
+        createAgendaSlide(slide, data, titleSize, headingSize, bodySize);
+      } else if (slideType === 'table') {
+        createTableSlide(slide, data, titleSize, headingSize, bodySize);
+      } else if (slideType === 'chart') {
+        createChartSlide(slide, data, titleSize, headingSize, bodySize);
+      } else if (slideType === 'custom_schedule') {
+        createCustomScheduleSlide(slide, data, pptx);
+      } else if (slideType === 'milestone') {
+        createMilestoneSlide(slide, data, pptx);
+      } else {
+        // 未知のタイプの場合はデフォルトを使用
+        createDefaultSlide(slide, data, titleSize, headingSize, bodySize);
+      }
+    }
+    
+    // デフォルトスライド（通常テキスト）
+    function createDefaultSlide(slide, data, titleSize, headingSize, bodySize) {
+      // タイトル
+      if (data.title) {
+        slide.addText(data.title, { 
+          x: 0.37, y: 0.35, w: 12.60, h: 0.59, 
+          fontSize: titleSize, 
+          fontFace: DEFAULT_FONT_FACE 
+        });
+      }
+      
+      // 見出し
+      if (data.heading) {
+        slide.addText(data.heading, { 
+          x: 0.37, y: 1.19, w: 12.60, h: 0.4, 
+          fill: 'DDDDDD', 
+          color: '000000', // 黒色テキスト
+          fontSize: headingSize, 
+          fontFace: DEFAULT_FONT_FACE,
+          align: 'left',
+          valign: 'middle'
+        });
+      }
+      
+      // 本文
+      if (data.body) {
+        const bodyText = Array.isArray(data.body) ? data.body.join('\n\n') : data.body;
+        slide.addText(bodyText, { 
+          x: 0.37, y: 2.02, w: 12.60, h: 3.0, 
+          valign: 'top', 
+          fontSize: bodySize, 
+          fontFace: DEFAULT_FONT_FACE,
+          bullet: false  // 箇条書きなし
+        });
+      } else if (data.items) {
+        const itemsText = Array.isArray(data.items) ? data.items.join('\n\n') : data.items;
+        slide.addText(itemsText, { 
+          x: 0.37, y: 2.02, w: 12.60, h: 3.0, 
+          valign: 'top', 
+          fontSize: bodySize, 
+          fontFace: DEFAULT_FONT_FACE,
+          bullet: false  // 箇条書きなし
+        });
+      }
+    }
+    
+    // アジェンダスライド（箇条書き）
+    function createAgendaSlide(slide, data, titleSize, headingSize, bodySize) {
+      // タイトル
+      if (data.title) {
+        slide.addText(data.title, { 
+          x: 0.37, y: 0.35, w: 12.60, h: 0.59, 
+          fontSize: titleSize, 
+          fontFace: DEFAULT_FONT_FACE,
+          bold: true,
+          color: '000000' // 黒色のタイトル
+        });
+      }
+      
+      // 箇条書き
+      if (data.body) {
+        const bodyItems = Array.isArray(data.body) ? data.body : [data.body];
+        let yPos = 2.02;
+        bodyItems.forEach((item, index) => {
+          slide.addText(`${index + 1}. ${item}`, { 
+            x: 0.37, y: yPos, w: 12.60, h: 0.5, 
+            valign: 'top', 
+            fontSize: bodySize + 2, 
+            fontFace: DEFAULT_FONT_FACE
+          });
+          yPos += 0.6; // 次の項目の位置
+        });
+      } else if (data.items) {
+        const itemsArray = Array.isArray(data.items) ? data.items : data.items.split('\n');
+        let yPos = 2.02;
+        itemsArray.forEach((item, index) => {
+          slide.addText(`${index + 1}. ${item}`, { 
+            x: 0.37, y: yPos, w: 12.60, h: 0.5, 
+            valign: 'top', 
+            fontSize: bodySize + 2, 
+            fontFace: DEFAULT_FONT_FACE
+          });
+          yPos += 0.6; // 次の項目の位置
+        });
+      }
+    }
+    
+    // テーブルスライド（表形式）
+    function createTableSlide(slide, data, titleSize, headingSize, bodySize) {
+      // タイトル
+      if (data.title) {
+        slide.addText(data.title, { 
+          x: 0.37, y: 0.35, w: 12.60, h: 0.59, 
+          fontSize: titleSize, 
+          fontFace: DEFAULT_FONT_FACE 
+        });
+      }
+      
+      // 見出し
+      if (data.heading) {
+        slide.addText(data.heading, { 
+          x: 0.37, y: 1.19, w: 12.60, h: 0.4, 
+          fill: 'DDDDDD', 
+          color: '000000', // 黒色テキスト
+          fontSize: headingSize, 
+          fontFace: DEFAULT_FONT_FACE,
+          align: 'left',
+          valign: 'middle'
+        });
+      }
+      
+      // テーブル
+      if (data.tableData && Array.isArray(data.tableData) && data.tableData.length > 0) {
+        const tableOpts = {
+          x: 0.37, y: 1.86, w: 12.60, h: 4.78,
+          fontSize: bodySize, 
+          fontFace: DEFAULT_FONT_FACE, 
+          align: 'center', 
+          valign: 'middle',
+          border: { pt: 1, color: 'BFBFBF' },
+          headerStyle: { fill: '404040', color: 'FFFFFF', bold: true }
+        };
+        
+        // テーブルのカスタムオプションがあれば適用
+        if (data.tableOptions) {
+          Object.assign(tableOpts, data.tableOptions);
+        }
+        
+        slide.addTable(data.tableData, tableOpts);
+      } else {
+        // テーブルデータがない場合は警告メッセージを表示
+        slide.addText('テーブルデータがありません', { 
+          x: 0.37, y: 1.86, w: 12.60, h: 1.0, 
+          fontSize: bodySize, 
+          fontFace: DEFAULT_FONT_FACE,
+          color: 'FF0000',
+          align: 'center',
+          valign: 'middle'
+        });
+      }
+    }
+
+
+// グラフの作成
+    function createChartSlide(slide, data, titleSize, headingSize, bodySize) {
+      // 1. スライドタイトルを追加
+      if (data.title) {
+        slide.addText(data.title, { 
+          x: 0.37,           // 左からの位置
+          y: 0.35,           // 上からの位置
+          w: 12.60,          // 幅
+          h: 0.59,           // 高さ
+          fontSize: titleSize, 
+          fontFace: DEFAULT_FONT_FACE 
+        });
+      }
+    
+      // 2. 見出しを追加
+      if (data.heading) {
+        slide.addText(data.heading, { 
+          x: 0.37,           // 左からの位置
+          y: 1.19,           // 上からの位置
+          w: 12.60,          // 幅
+          h: 0.4,            // 高さ
+          fill: 'DDDDDD',    // 背景色（薄いグレー）
+          color: '000000',   // テキスト色（黒）
+          fontSize: headingSize, 
+          fontFace: DEFAULT_FONT_FACE,
+          align: 'left',     // 左揃え
+          valign: 'middle'   // 垂直中央揃え
+        });
+      }
+    
+      // 3. グラフを追加（データがある場合のみ）
+      if (data.chartData && Array.isArray(data.chartData) && data.chartData.length > 0) {
+        try {
+          // データの検証と修正
+          const validatedChartData = data.chartData.map(series => {
+            // 必須プロパティの確認
+            if (!series.name || !Array.isArray(series.values)) {
+              return {
+                name: series.name || 'データ系列',
+                labels: Array.isArray(series.labels) ? series.labels : [],
+                values: Array.isArray(series.values) ? series.values : [0]
+              };
+            }
+            
+            // 値の検証 - 無効な値を0に置換
+            const cleanValues = series.values.map(val => {
+              return (typeof val === 'number' && !isNaN(val) && isFinite(val)) ? val : 0;
+            });
+            
+            // ラベルの検証
+            let cleanLabels = Array.isArray(series.labels) ? 
+              series.labels.map(label => String(label || '')) : 
+              cleanValues.map((_, i) => `項目${i+1}`);
+            
+            // ラベルと値の長さを一致させる
+            while (cleanLabels.length < cleanValues.length) {
+              cleanLabels.push(`項目${cleanLabels.length+1}`);
+            }
+            while (cleanValues.length < cleanLabels.length) {
+              cleanValues.push(0);
+            }
+            
+            return {
+              name: String(series.name),
+              labels: cleanLabels,
+              values: cleanValues
+            };
+          });
+    
+          // 3.1 基本的なグラフ設定
+          let chartOpts = {
+            // 位置とサイズ
+            x: 0.37,           // 左からの位置
+            y: 1.7,            // 上からの位置
+            w: 12.60,          // 幅
+            h: 5,              // 高さ
+            
+            // タイトル設定
+            title: data.chartTitle || '',  // グラフタイトル（指定がなければ空）
+            showTitle: true,               // タイトルを表示
+            titleColor: '363636',          // タイトルの色（濃いグレー）
+            titleFontSize: 14,             // タイトルのフォントサイズ
+            
+            // 凡例設定
+            showLegend: data.showLegend !== undefined ? data.showLegend : true,  // 凡例表示（指定がなければ表示）
+            legendPos: 'b',                // 凡例の位置（下）
+            legendColor: '363636',         // 凡例の色（濃いグレー）
+            legendFontSize: 10,            // 凡例のフォントサイズ
+            
+            // データラベル設定
+            showValue: true,               // 数値を表示
+            dataLabelPosition: 't',        // ラベルの位置（上）
+            dataLabelColor: '363636',      // ラベルの色（濃いグレー）
+            dataLabelFontSize: 10,         // ラベルのフォントサイズ
+            dataLabelFormatCode: '#,##0',  // 数値の書式（カンマ区切り）
+            
+            // チャートカラー設定
+            chartColors: [                 // グラフの色パレット
+              '4472C4', '70AD47', 'ED7D31', 'FFC000', 
+              '5B9BD5', 'A5A5A5', '7030A0', '0070C0'
+            ]
+          };
+    
+          // 3.2 グラフの種類を決定（指定がなければ棒グラフ）
+          let chartType = 'bar';  // デフォルト値
+          
+          // サポートされているチャートタイプのリスト
+          const supportedChartTypes = ['bar', 'line', 'pie', 'doughnut', 'area'];
+          
+          // 指定されたチャートタイプがサポートされている場合のみ使用
+          if (data.chartType && supportedChartTypes.includes(data.chartType)) {
+            chartType = data.chartType;
+          }
+    
+          // 3.3 グラフの種類に応じた特別設定
+          if (chartType === 'doughnut' || chartType === 'pie') {
+            // ドーナツグラフ/円グラフの場合
+            chartOpts = {
+              ...chartOpts,                 // 基本設定を引き継ぐ
+              holeSize: chartType === 'doughnut' ? 50 : 0,  // ドーナツの場合は穴あき
+              showLabel: true,              // ラベルを表示
+              dataLabelPosition: 'bestFit', // ラベル位置を自動調整
+              dataLabelColor: "FFFFFF",     // ラベルの色（白）
+              dataLabelFontSize: 12,        // ラベルのフォントサイズ
+              dataLabelFontBold: true       // ラベルを太字に
+            };
+          } else if (chartType === 'line') {
+            // 折れ線グラフの場合
+            chartOpts = {
+              ...chartOpts,                 // 基本設定を引き継ぐ
+              
+              // X軸（カテゴリ軸）の設定
+              catAxisLabelColor: "363636",  // ラベルの色（濃いグレー）
+              catAxisLabelFontSize: 10,     // ラベルのフォントサイズ
+              catAxisLabelRotate: 0,        // ラベルを回転しない
+              
+              // Y軸（値軸）の設定
+              valAxisLabelColor: "363636",  // ラベルの色（濃いグレー）
+              valAxisLabelFontSize: 10,     // ラベルのフォントサイズ
+              
+              // グリッド線の設定
+              valGridLine: { 
+                color: "E1E1E1",            // 線の色（薄いグレー）
+                style: "solid",             // 線のスタイル（実線）
+                size: 1                     // 線の太さ
+              },
+              
+              // 線の設定
+              lineSize: 2,                  // 線の太さ
+              lineSmooth: false,            // 直線（スムーズにしない）
+              lineDataSymbol: 'circle',     // データポイントの形（円）
+              lineDataSymbolSize: 6         // データポイントのサイズ
+            };
+          } else if (chartType === 'bar') {
+            // 棒グラフの場合
+            chartOpts = {
+              ...chartOpts,                 // 基本設定を引き継ぐ
+              
+              // 棒グラフの設定
+              barDir: 'col',                // 縦棒グラフ
+              barGrouping: 'clustered',     // グループ化された棒グラフ
+              barGapWidthPct: 50,           // 棒の間隔（50%）
+              
+              // X軸（カテゴリ軸）の設定
+              catAxisLabelColor: "363636",  // ラベルの色（濃いグレー）
+              catAxisLabelFontSize: 10,     // ラベルのフォントサイズ
+              catAxisLabelRotate: 0,        // ラベルを回転しない
+              catAxisOrientation: 'minMax', // 軸の向き
+              
+              // Y軸（値軸）の設定
+              valAxisLabelColor: "363636",  // ラベルの色（濃いグレー）
+              valAxisLabelFontSize: 10,     // ラベルのフォントサイズ
+              valAxisMaxVal: null,          // 最大値（自動）
+              valAxisMinVal: 0,             // 最小値（0から開始）
+              
+              // グリッド線の設定
+              valGridLine: { 
+                color: "E1E1E1",            // 線の色（薄いグレー）
+                style: "solid",             // 線のスタイル（実線）
+                size: 1                     // 線の太さ
+              },
+              
+              // データラベルの位置調整
+              dataLabelPosition: 'outEnd',  // ラベルの位置（棒の上端の外側）
+              dataLabelFormatCode: '#,##0'  // 数値の書式（カンマ区切り）
+            };
+          } else if (chartType === 'area') {
+            // エリアチャートの場合
+            chartOpts = {
+              ...chartOpts,                 // 基本設定を引き継ぐ
+              
+              // X軸（カテゴリ軸）の設定
+              catAxisLabelColor: "363636",  // ラベルの色（濃いグレー）
+              catAxisLabelFontSize: 10,     // ラベルのフォントサイズ
+              
+              // Y軸（値軸）の設定
+              valAxisLabelColor: "363636",  // ラベルの色（濃いグレー）
+              valAxisLabelFontSize: 10,     // ラベルのフォントサイズ
+              valAxisMinVal: 0,             // 最小値（0から開始）
+              
+              // グリッド線の設定
+              valGridLine: { 
+                color: "E1E1E1",            // 線の色（薄いグレー）
+                style: "solid",             // 線のスタイル（実線）
+                size: 1                     // 線の太さ
+              },
+              
+              // 塗りつぶしの透明度
+              chartColorsOpacity: 0.7       // 70%の不透明度
+            };
+          }
+    
+          // 3.4 追加のカスタム設定があれば適用（安全に）
+          if (data.chartOptions && typeof data.chartOptions === 'object') {
+            // 安全なプロパティのみをマージ
+            const safeProps = [
+              'x', 'y', 'w', 'h', 'barDir', 'barGrouping', 'barGapWidthPct',
+              'chartColors', 'showTitle', 'titleColor', 'titleFontSize',
+              'showLegend', 'legendPos', 'legendFontSize', 'legendColor',
+              'showValue', 'dataLabelPosition', 'dataLabelColor', 'dataLabelFontSize',
+              'catAxisLabelColor', 'catAxisLabelFontSize', 'catAxisLabelRotate',
+              'valAxisLabelColor', 'valAxisLabelFontSize', 'valAxisMaxVal', 'valAxisMinVal'
+            ];
+            
+            safeProps.forEach(prop => {
+              if (data.chartOptions[prop] !== undefined) {
+                chartOpts[prop] = data.chartOptions[prop];
+              }
+            });
+          }
+    
+          // 3.5 グラフをスライドに追加
+          slide.addChart(chartType, validatedChartData, chartOpts);
+        } catch (error) {
+          console.error('チャート作成エラー:', error);
+          // エラー時はメッセージを表示
+          slide.addText(`グラフの作成中にエラーが発生しました: ${error.message}`, { 
+            x: 0.37,           // 左からの位置
+            y: 1.86,           // 上からの位置
+            w: 12.60,          // 幅
+            h: 1.0,            // 高さ
+            fontSize: bodySize, 
+            fontFace: DEFAULT_FONT_FACE,
+            color: 'FF0000',   // テキスト色（赤）
+            align: 'center',   // 中央揃え
+            valign: 'middle'   // 垂直中央揃え
+          });
+        }
+      } else {
+        // 4. グラフデータがない場合は警告メッセージを表示
+        slide.addText('チャートデータがありません', { 
+          x: 0.37,           // 左からの位置
+          y: 1.86,           // 上からの位置
+          w: 12.60,          // 幅
+          h: 1.0,            // 高さ
+          fontSize: bodySize, 
+          fontFace: DEFAULT_FONT_FACE,
+          color: 'FF0000',   // テキスト色（赤）
+          align: 'center',   // 中央揃え
+          valign: 'middle'   // 垂直中央揃え
+        });
+      }
+    }
+
+
+
+    
+    // カスタムスケジュールスライド
+    function createCustomScheduleSlide(slide, data, pptx) {
+      // タイトル
+      if (data.scheduleTitle) {
+        slide.addText(data.scheduleTitle, { 
+          x: 0.37, y: 0.35, w: 12.60, h: 0.59, 
+          fontSize: TITLE_FONT_SIZE, 
+          fontFace: DEFAULT_FONT_FACE 
+        });
+      }
+      
+      // 月の行
+      if (data.includedMonths && Array.isArray(data.includedMonths)) {
+        const monthRowOpts = { 
+          x: 1.95, y: 1.24, w: 11.02, h: 0.48, 
+          fontSize: 14, 
+          fontFace: DEFAULT_FONT_FACE, 
+          align: 'center', 
+          valign: 'middle', 
+          color: 'FFFFFF', 
+          fill: '787878', 
+          border: { pt: 3, color: 'FFFFFF' } 
+        };
+        slide.addTable([data.includedMonths], monthRowOpts);
+      }
+      
+      // 日付範囲の行
+      if (data.weeklyWorkingDayRanges && Array.isArray(data.weeklyWorkingDayRanges)) {
+        const dateRangeRowOpts = { 
+          x: 1.95, y: 1.72, w: 11.02, h: 0.48, 
+          fontSize: 7, 
+          fontFace: DEFAULT_FONT_FACE, 
+          align: 'center', 
+          valign: 'middle', 
+          color: 'FFFFFF', 
+          fill: '262626', 
+          border: { pt: 3, color: 'FFFFFF' } 
+        };
+        slide.addTable([data.weeklyWorkingDayRanges], dateRangeRowOpts);
+      }
+      
+      // タスクリスト
+      if (data.taskList && Array.isArray(data.taskList)) {
+        const scheduleDataOpts = { 
+          x: 0.37, y: 2.40, w: 1.58, h: 4.50, 
+          fontSize: 12, 
+          fontFace: DEFAULT_FONT_FACE, 
+          align: 'left', 
+          valign: 'middle', 
+          fill: 'F2F2F2', 
+          border: { pt: 3, color: 'FFFFFF' } 
+        };
+        slide.addTable(data.taskList, scheduleDataOpts);
+      }
+      
+      // ホームベース型の図形を追加
+      if (data.taskCategories) {
+        const homeBaseTexts = Array.isArray(data.taskCategories) ? data.taskCategories : [data.taskCategories];
+        const shapeWidth = 1.5;
+        const shapeHeight = 1.0;
+        const startX = 2.07;
+        const startY = 2.44;
+        const spacingY = 0.1;
+        
+        homeBaseTexts.forEach((text, index) => {
+          const yPos = startY + index * (shapeHeight + spacingY);
+          slide.addText(text, {
+            shape: pptx.shapes.CUSTOM_GEOMETRY,
+            x: startX,
+            y: yPos,
+            w: shapeWidth,
+            h: shapeHeight,
+            fontSize: 11,
+            fontFace: DEFAULT_FONT_FACE,
+            color: "595959", // テキスト色：グレー
+            bold: true,
+            align: "center",
+            valign: "middle",
+            fill: { color: "FFFFFF" }, // 背景：白
+            line: {
+              color: "BFBFBF", // 枠線：グレー
+              width: 1.0     // 太さ：1pt
+            },
+            points: [
+              { x: 1.7, y: 0.5 },   // 右とんがり
+              { x: 1.6, y: 0.0 },   // 上
+              { x: 0.0, y: 0.0 },   // 左上
+              { x: 0.0, y: 1.0 },   // 左下
+              { x: 1.6, y: 1.0 },   // 下
+              { close: true }
+            ]
+          });
+        });
+      }
+    }
+    
+    // マイルストーンスライド
+    function createMilestoneSlide(slide, data, pptx) {
+      // 要素1: タイトル
+      if (data.milestoneSlideTitle) {
+        slide.addText(data.milestoneSlideTitle, { 
+          x: 0.37, y: 0.35, w: 12.60, h: 0.59, 
+          fontSize: TITLE_FONT_SIZE, 
+          fontFace: DEFAULT_FONT_FACE 
+        });
+      }
+      
+      // 要素3: テキストボックス (概要)
+      if (data.milestoneOverview) {
+        slide.addText(data.milestoneOverview, {
+          x: 2.67, y: -1.04, w: 2.96, h: 0.40,
+          fontSize: BODY_FONT_SIZE, 
+          fontFace: DEFAULT_FONT_FACE, 
+          bold: true, 
+          color: "C00000", 
+          autoFit: true, 
+          wordWrap: true
+        });
+      }
+      
+      // 要素4: テーブル (マイルストーン名)
+      if (data.milestoneNames && Array.isArray(data.milestoneNames)) {
+        const table4Data = data.milestoneNames.map(row => [row]); // 1次元配列を2次元配列に変換
+        const table4Opts = {
+          x: 2.67, y: 1.51, w: 10.29, h: 5.39,
+          fontSize: 16, 
+          fontFace: DEFAULT_FONT_FACE, 
+          bold: true, 
+          color: "C00000", 
+          align: 'left', 
+          valign: 'middle',
+          border: { pt: 0, color: 'FFFFFF' }, // 枠線なし
+          fill: { color: 'FFFFFF', transparency: 100 } // 背景色なし
+        };
+        slide.addTable(table4Data, table4Opts);
+      }
+      
+      // 要素5: テーブル (マイルストーン説明)
+      if (data.milestoneDescriptions && Array.isArray(data.milestoneDescriptions)) {
+        const table5Data = data.milestoneDescriptions.map(row => [row]); // 1次元配列を2次元配列に変換
+        const table5Opts = {
+          x: 2.67, y: 1.77, w: 10.29, h: 5.39,
+          fontSize: 12, 
+          fontFace: DEFAULT_FONT_FACE, 
+          color: "595959", 
+          align: 'left', 
+          valign: 'middle',
+          border: { pt: 0, color: 'FFFFFF' }, // 枠線なし
+          fill: { color: 'FFFFFF', transparency: 100 } // 背景色なし
+        };
+        slide.addTable(table5Data, table5Opts);
+      }
+      
+      // 要素6: テーブル (次のマイルストーンまでの日数)
+      if (data.daysToNextMilestone && Array.isArray(data.daysToNextMilestone)) {
+        const table6Data = data.daysToNextMilestone.map(row => [row]); // 1次元配列を2次元配列に変換
+        const table6Opts = {
+          x: 0.37, y: 2.05, w: 1.65, h: 4.31,
+          fontSize: 16, 
+          fontFace: DEFAULT_FONT_FACE, 
+          bold: true, 
+          color: "595959", 
+          align: 'right', 
+          valign: 'middle',
+          border: { pt: 0, color: 'FFFFFF' }, // 枠線なし
+          fill: { color: 'FFFFFF', transparency: 100 } // 背景色なし
+        };
+        slide.addTable(table6Data, table6Opts);
+      }
+      
+      // 要素7: テーブル (マイルストーンマーカー)
+      if (data.milestoneMarkers && Array.isArray(data.milestoneMarkers)) {
+        const table7Data = data.milestoneMarkers.map(row => [row]); // 1次元配列を2次元配列に変換
+        const table7Opts = {
+          x: 2.03, y: 1.51, w: 0.65, h: 5.39,
+          fontSize: 20, 
+          fontFace: DEFAULT_FONT_FACE, 
+          bold: true, 
+          color: "C00000", 
+          align: 'center', 
+          valign: 'middle',
+          border: { pt: 0, color: 'FFFFFF' }, // 枠線なし
+          fill: { color: 'FFFFFF', transparency: 100 } // 背景色なし
+        };
+        slide.addTable(table7Data, table7Opts);
+      }
+      
+      // 縦線を追加
+      slide.addShape('rect', {
+        x: 2.34,
+        y: 1.3,
+        w: 0.0266,
+        h: 5.59,
+        fill: { color: 'C00000' },
+        line: { type: 'none' }  // 枠線なし
+      });
+    }
+    
+    // マスタースライドを定義
+    function defineMasterSlide(pptx, logoPath) {
+      try {
+        pptx.defineSlideMaster({
+          title: MASTER_SLIDE_TITLE,
+          width: LAYOUT_WIDTH,
+          height: LAYOUT_HEIGHT,
+          background: { color: 'FFFFFF' }, // 背景色を白に設定
+          objects: [
+            // ロゴ（logoPathが提供されている場合のみ追加）
+            ...(logoPath ? [{ 'image': { x: 0.24, y: 6.95, w: 0.39, h: 0.39, path: logoPath } }] : []),
+            // CONFIDENTIALテキスト
+            { 'text': { 
+              text: 'CONFIDENTIAL', 
+              options: { 
+                x: 11.00, y: 6.99, w: 1.64, h: 0.30, 
+                fontSize: 12, 
+                fontFace: DEFAULT_FONT_FACE, 
+                color: '000000', 
+                bold: true, 
+                align: 'right' 
+              } 
+            } }
+          ],
+          slideNumber: { 
+            x: 12.73, y: 6.99, w: 0.50, h: 0.30, 
+            color: '000000', 
+            fontFace: DEFAULT_FONT_FACE, 
+            fontSize: 12, 
+            bold: true, 
+            align: 'left' 
+          }, // スライド番号の設定
+          slideSize: { w: LAYOUT_WIDTH, h: LAYOUT_HEIGHT }
+        });
+        return true; // 正常に定義された場合はtrueを返す
+      } catch (error) {
+        console.error("スライドマスターの定義中にエラーが発生しました", error);
+        return false; // エラーが発生した場合はfalseを返す
+      }
+    }
+    
+    // デフォルトのスライドデータを取得
+    function getDefaultSlides() {
+      return [
+        {
+          slidetype: 'default',
+          title: 'テキストスライド例',
+          heading: '通常テキスト（箇条書きなし）',
+          body: 'これは通常のテキストスライドです。箇条書きではなく、段落として表示されます。長いテキストの場合は自動的に折り返されて表示されます。このようにして、説明文や概要などを記述することができます。'
+        },
+        {
+          slidetype: 'agenda',
+          title: 'アジェンダ',
+          body: ['プロジェクト概要', '技術スタック', 'スケジュール', '予算']
+        },
+        {
+          slidetype: 'table',
+          title: 'テーブルスライド例',
+          heading: 'データ比較表',
+          tableData: [
+            ['項目', '2021年', '2022年', '2023年'],
+            ['売上高', '1,000万円', '1,200万円', '1,500万円'],
+            ['営業利益', '200万円', '250万円', '300万円'],
+            ['純利益', '150万円', '180万円', '220万円']
+          ]
+        },
+        {
+          slidetype: 'chart',
+          title: 'チャートスライド例',
+          heading: '売上推移グラフ',
+          chartTitle: '四半期別売上（単位：百万円）',
+          chartType: 'bar',
+          chartData: [
+            {
+              name: '2022年',
+              labels: ['Q1', 'Q2', 'Q3', 'Q4'],
+              values: [120, 135, 140, 150]
+            },
+            {
+              name: '2023年',
+              labels: ['Q1', 'Q2', 'Q3', 'Q4'],
+              values: [150, 160, 165, 170]
+            }
+          ],
+          showLegend: true
+        },
+        {
+          slidetype: 'custom_schedule',
+          scheduleTitle: 'プロジェクトスケジュール',
+          includedMonths: ['1月', '2月', '3月', '4月'],
+          weeklyWorkingDayRanges: ['1-7', '8-14', '15-21', '22-28', '1-7', '8-14', '15-21', '22-28', '1-7', '8-14', '15-21', '22-28', '1-7', '8-14', '15-21', '22-28'],
+          taskList: [
+            ['タスク'],
+            ['要件定義'],
+            ['設計'],
+            ['開発'],
+            ['テスト'],
+            ['リリース']
+          ],
+          taskCategories: ['フェーズ1', 'フェーズ2', 'フェーズ3']
+        },
+        {
+          slidetype: 'milestone',
+          milestoneSlideTitle: 'プロジェクトマイルストーン',
+          milestoneOverview: 'プロジェクト全体の進捗状況',
+          milestoneNames: ['要件定義完了', '設計完了', '開発完了', 'テスト完了', 'リリース'],
+          milestoneDescriptions: ['要件定義フェーズが完了し、設計フェーズに移行します', '設計フェーズが完了し、開発フェーズに移行します', '開発フェーズが完了し、テストフェーズに移行します', 'テストフェーズが完了し、リリース準備に移行します', 'プロジェクト完了、運用フェーズに移行します'],
+          daysToNextMilestone: ['10日', '30日', '45日', '15日', '5日'],
+          milestoneMarkers: ['●', '●', '●', '●', '●']
+        }
+      ];
+    }
+    
+    // JSONデータからスライドを生成する関数
+    function createSlidesFromJson(pptx, jsonData, isPopup = false) {
+      try {
+        // JSONをパース
+        const slideData = JSON.parse(jsonData);
+        // 配列でない場合は配列に変換
+        const slides = Array.isArray(slideData) ? slideData : [slideData];
+        
+        slides.forEach(info => {
+          const slide = pptx.addSlide({ masterName: MASTER_SLIDE_TITLE });
+          // スライドを作成
+          createSlideByType(slide, info, pptx, isPopup);
+        });
+        
+        return true;
+      } catch (e) {
+        console.error('JSONデータからのスライド生成エラー:', e);
+        return false;
+      }
+    }
+    // 公開API
+    return {
+      createSlideByType: createSlideByType,
+      defineMasterSlide: defineMasterSlide,
+      getDefaultSlides: getDefaultSlides,
+      createSlidesFromJson: createSlidesFromJson,
+      // 定数も公開
+      LAYOUT_WIDTH: LAYOUT_WIDTH,
+      LAYOUT_HEIGHT: LAYOUT_HEIGHT,
+      MASTER_SLIDE_TITLE: MASTER_SLIDE_TITLE,
+      TITLE_FONT_SIZE: TITLE_FONT_SIZE,
+      HEADING_FONT_SIZE: HEADING_FONT_SIZE,
+      BODY_FONT_SIZE: BODY_FONT_SIZE,
+      DEFAULT_FONT_FACE: DEFAULT_FONT_FACE,
+      POPUP_TITLE_FONT_SIZE: POPUP_TITLE_FONT_SIZE,
+      POPUP_HEADING_FONT_SIZE: POPUP_HEADING_FONT_SIZE,
+      POPUP_BODY_FONT_SIZE: POPUP_BODY_FONT_SIZE
+    };
+  })();
+  
+  // グローバルに公開
+  window.SlideCreator = SlideCreator;
+  
+  cat: jsonDetector.js: No such file or directory
+cat: previewManager.js: No such file or directory
+cat: slideGenerator.js: No such file or directory
+cat: ui.js: No such file or directory
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>PPTX Preview</title>
+  <style>
+    body {
+      width: 300px;
+      padding: 10px;
+      font-family: Arial, sans-serif;
+    }
+    h1 {
+      font-size: 18px;
+      margin-top: 0;
+      color: #333;
+    }
+    button {
+      background-color: #0078d4;
+      color: white;
+      border: none;
+      padding: 8px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      margin-top: 10px;
+      width: 100%;
+    }
+    button:hover {
+      background-color: #005a9e;
+    }
+    .info {
+      margin-top: 10px;
+      font-size: 12px;
+      color: #666;
+    }
+  </style>
+</head>
+<body>
+  <h1>PPTX Preview</h1>
+  <p>ページからJSONデータを検出し、PPTXスライドを生成します。</p>
+  <button id="make">スライド生成</button>
+  <div class="info">
+    <p>対応するJSONフォーマット:</p>
+    <pre style="font-size: 10px; overflow: auto; max-height: 100px;">
+[
+  {
+    "type": "default",
+    "title": "タイトル",
+    "heading": "見出し",
+    "body": "通常テキスト"
+  },
+  {
+    "type": "agenda",
+    "title": "アジェンダ",
+    "body": ["項目1", "項目2", "項目3"]
+  }
+]
+    </pre>
+  </div>
+  <script src="other/pptxgen.bundle.js"></script>
+  <script src="slideCreator.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
+/**
+ * popup.js
+ * ────────────────────────────────────────────
+ * ブラウザ拡張のポップアップ画面用スクリプト。
+ * ①コンテンツスクリプトとの接続確認
+ * ②ページから JSON 抽出
+ * ③スライド生成 → PPTX Blob 化
+ * ④プレビュー表示リクエスト送信
+ * の一連のフローを制御します。
+ */
+
+// ===== 接続関連の関数 =====
+// 接続確認
+async function checkContentScriptConnection() {
+  try {
+    // 現在のタブを取得
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab || !tab.id) {
+      console.error('タブが見つかりません');
+      return false;
+    }
+    
+    // コンテンツスクリプトが読み込まれているか確認
+    try {
+      await chrome.tabs.sendMessage(tab.id, { action: 'ping' });
+      console.log('コンテンツスクリプトが応答しました');
+      return true;
+    } catch (e) {
+      console.log('コンテンツスクリプトが応答しません。注入を試みます...');
+      
+      // 必要なすべてのスクリプトを順番に注入
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: ['other/pptxgen.bundle.js']
+        });
+        
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: ['other/jquery.min.js', 'other/jszip.min.js']
+        });
+        
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: ['slideCreator.js']
+        });
+        
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: ['content.js']
+        });
+        
+        console.log('コンテンツスクリプトを注入しました');
+        
+        // 注入後に再度確認
+        try {
+          await chrome.tabs.sendMessage(tab.id, { action: 'ping' });
+          console.log('コンテンツスクリプトが正常に応答しました');
+          return true;
+        } catch (innerError) {
+          console.error('コンテンツスクリプト注入後も応答がありません', innerError);
+          return false;
+        }
+      } catch (injectionError) {
+        console.error('スクリプト注入エラー:', injectionError);
+        return false;
+      }
+    }
+  } catch (e) {
+    console.error('接続確認エラー:', e);
+    return false;
+  }
+}
+
+
+// ===== JSON取得関連の関数 =====
+// スクレイピング関数 - ウェブページからJSONデータを取得
+async function scrapeJsonFromPage() {
+  try {
+    // 現在のタブでスクリプトを実行
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab || !tab.id) {
+      throw new Error('タブが見つかりません');
+    }
+    
+    const results = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      function: getJsonFromPageScript
+    });
+    
+    // 結果を取得
+    if (!results || !results[0]) {
+      console.error('[popup.js] スクリプト実行結果が取得できませんでした。');
+      alert("ページからのデータ取得に失敗しました。");
+      return null;
+    }
+    
+    if (results[0].result && results[0].result.error) {
+      const errorMsg = results[0].result.error;
+      console.error('[popup.js] スクレイピングエラー:', errorMsg);
+      alert(errorMsg);
+      return null;
+    }
+    
+    return results[0].result;
+  } catch (e) {
+    console.error('[popup.js] スクレイピング実行エラー:', e);
+    alert("ページからのデータ取得に失敗しました。");
+    return null;
+  }
+}
+
+// ページ内でJSONを取得するスクリプト（executeScriptで実行される）
+function getJsonFromPageScript() {
+  // ページ内のすべてのJSONコードブロックを探す
+  const codeBlocks = document.querySelectorAll('code.language-json, pre');
+  if (codeBlocks.length === 0) {
+    return { error: "JSONデータが見つかりませんでした。" };
+  }
+  
+  // 有効なJSONを含むブロックを収集
+  const validJsonBlocks = [];
+  for (const block of codeBlocks) {
+    try {
+      // spanタグで分かれていても全体のテキストを連結
+      const text = block.innerText || block.textContent;
+      const jsonText = text.trim();
+
+      JSON.parse(jsonText);
+
+      // 有効なJSONブロックとその位置情報を保存
+      const rect = block.getBoundingClientRect();
+      validJsonBlocks.push({
+        text: textContent,
+        position: rect.top + window.scrollY, // ページ上の絶対位置
+        element: block
+      });
+    } catch (e) {
+      // JSONとして解析できない場合はスキップ
+      continue;
+    }
+  }
+  
+  if (validJsonBlocks.length === 0) {
+    return { error: "有効なJSONデータが見つかりませんでした。" };
+  }
+  
+  // 位置情報でソート（下にあるものが後ろに来るようにする）
+  validJsonBlocks.sort((a, b) => a.position - b.position);
+  
+  // 最後（一番下）のJSONブロックを取得
+  const latestBlock = validJsonBlocks[validJsonBlocks.length - 1];
+  
+  // 選択されたJSONブロックを視覚的に強調表示
+  for (const block of validJsonBlocks) {
+    if (block.element === latestBlock.element) {
+      // 選択されたブロックを強調表示
+      block.element.style.border = '3px solid #4CAF50';
+      block.element.style.boxShadow = '0 0 10px rgba(76, 175, 80, 0.7)';
+      block.element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } else {
+      // 他のJSONブロックは薄い強調表示
+      block.element.style.border = '1px solid #0078d4';
+      block.element.style.boxShadow = '0 0 5px rgba(0, 120, 212, 0.3)';
+    }
+  }
+  
+  // 最新のJSONデータを返す
+  return latestBlock.text;
+}
+
+// ===== プレビュー関連の関数 =====
+// 直接プレビューを表示する関数
+async function showPreviewDirectly(pptxBlob, jsonData) {
+  try {
+    // 現在のタブを取得
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab || !tab.id) {
+      throw new Error('タブが見つかりません');
+    }
+    
+    // Blobをbase64に変換
+    const reader = new FileReader();
+    reader.readAsDataURL(pptxBlob);
+    reader.onloadend = async () => {
+      const base64data = reader.result.split(',')[1]; // data:application/...base64, を除去
+      
+      // コンテンツスクリプトにメッセージを送信
+      try {
+        await chrome.tabs.sendMessage(tab.id, {
+          action: 'renderPreview',
+          pptxB64: base64data,
+          jsonData: jsonData
+        });
+        console.log('プレビュー表示リクエストを送信しました');
+      } catch (e) {
+        console.error('プレビュー表示リクエスト送信エラー:', e);
+        alert('プレビューの表示に失敗しました。ページを更新して再試行してください。');
+      }
+    };
+  } catch (e) {
+    console.error('直接プレビュー表示エラー:', e);
+    alert('プレビューの表示に失敗しました。');
+  }
+}
+
+// ===== メインの処理フロー =====
+// スライド生成の実行
+async function generateSlides() {
+  try {
+    // 0. コンテンツスクリプトとの接続を確認
+    const connected = await checkContentScriptConnection();
+    if (!connected) {
+      alert("ページとの接続に失敗しました。ページを更新して再試行してください。");
+      return;
+    }
+    
+    // 1. ページからJSONデータをスクレイピング
+    const jsonData = await scrapeJsonFromPage();
+    if (!jsonData) return;
+    
+    console.log('📄 [popup.js] スクレイピングしたJSONデータ:', jsonData);
+    
+    // 2. スライド生成
+    const pptx = new PptxGenJS();
+    pptx.defineLayout({ 
+      name: 'myLayout', 
+      width: SlideCreator.LAYOUT_WIDTH, 
+      height: SlideCreator.LAYOUT_HEIGHT 
+    });
+    pptx.layout = 'myLayout';
+    
+    // マスター定義
+    // ロゴのパスを取得（拡張機能内のリソース）
+    const logoPath = chrome.runtime.getURL('logo.png');
+    SlideCreator.defineMasterSlide(pptx, logoPath);
+    
+    // JSONからスライドを生成
+    const success = SlideCreator.createSlidesFromJson(pptx, jsonData, true);
+    
+    if (!success) {
+      // 失敗した場合はデフォルトのスライドを使用
+      alert("JSONデータからのスライド生成に失敗しました。デフォルトのスライドを使用します。");
+      
+      const defaultSlides = SlideCreator.getDefaultSlides();
+      const defaultJson = JSON.stringify(defaultSlides);
+      
+      defaultSlides.forEach(info => {
+        const slide = pptx.addSlide({ masterName: SlideCreator.MASTER_SLIDE_TITLE });
+        SlideCreator.createSlideByType(slide, info, pptx, true);
+      });
+      
+      // 3. Blobとして出力
+      const blob = await pptx.write('blob');
+      console.log('📤 [popup.js] PPTX Blob size =', blob.size);
+      
+      // 4. 直接プレビューを表示（デフォルトJSONデータを渡す）
+      await showPreviewDirectly(blob, defaultJson);
+      return;
+    }
+    
+    // 3. Blobとして出力
+    const blob = await pptx.write('blob');
+    console.log('📤 [popup.js] PPTX Blob size =', blob.size);
+    
+    // 4. 直接プレビューを表示（元のJSONデータを渡す）
+    await showPreviewDirectly(blob, jsonData);
+  } catch (e) {
+    console.error('[popup.js] スライド生成エラー', e);
+    alert("スライド生成中にエラーが発生しました。");
+  }
+}
+
+
+// ===== イベントリスナー =====
+// スライド生成ボタンのイベントリスナー
+document.getElementById('make').addEventListener('click', generateSlides);
+
+// ページ読み込み時に実行
+document.addEventListener('DOMContentLoaded', async () => {
+  console.log('Popup loaded');
+  // コンテンツスクリプトとの接続を確認
+  await checkContentScriptConnection();
+});
+{
+  "manifest_version": 3,
+  "name": "PPTX Preview with JSON Scraping",
+  "version": "1.0.6",
+  "description": "ページからJSONを取得してPPTXを生成しプレビュー／エクスポート",
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "images/icon16.png",
+      "32": "images/icon32.png",
+      "48": "images/icon48.png",
+      "128": "images/icon128.png"
+    }
+  },
+  "permissions": ["activeTab", "scripting"],
+  "icons": {
+    "16":  "images/icon16.png",
+    "32":  "images/icon32.png",
+    "48":  "images/icon48.png",
+    "128": "images/icon128.png"
+  },
+  "web_accessible_resources": [{
+    "resources": [
+      "logo.png",
+      "images/Arrow.png",
+      "slideCreator.js"
+    ],
+      "matches": [
+        "https://r-ai.tsd.public.rakuten-it.com/*"
+      ]
+  }],
+  "host_permissions": [
+    "https://r-ai.tsd.public.rakuten-it.com/*"
+  ],
+  "content_scripts": [{
+    "matches": [
+      "https://r-ai.tsd.public.rakuten-it.com/*"
+    ],
+    "css": [
+      "pptxjs/css/pptxjs.css",
+      "pptxjs/css/nv.d3.min.css"
+    ],
+    "js": [
+
+      "other/pptxgen.bundle.js",
+      "other/jquery.min.js",
+      "other/jszip.min.js",
+      "slideCreator.js",
+      "pptxjs/js/d3.min.js",
+      "pptxjs/js/nv.d3.min.js",
+      "pptxjs/js/dingbat.js",
+      "pptxjs/filereader.js",
+      "pptxjs/js/pptxjs.js",
+      "pptxjs/js/divs2slides.js",
+
+      "preview/ui.js",
+      "preview/previewManager.js",
+      "preview/jsonDetector.js",
+      "preview/slideGenerator.js"
+
+    ],
+    "run_at": "document_idle"
+  }],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self';"
+  }
+}

@@ -1,0 +1,75 @@
+{
+  "manifest_version": 3,
+  "name": "PowerPoint genAI",
+  "version": "3.8.1",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2A+Lw+r3jgRh7rLKZvyHhHhA1rfGhvrI4YS+bKNaH79SxAxycaau7+ulad/C0N1NElK2r8eDKLU+YiFqNvjbkaWXIPtHIU/mP7LjtMl1aJDHDceZ/FKGObtguxq8icNTlSXtZgfEXOZJ+2nFh+fS6arO7UVe4v/O9bvaFrMlvJ9kczbooR5pNU5v0sMDlsICP4hdZTZ0AiTtlVyZUWfOmZWQYPkQH3RfHbbUIvld+zQyy98JyrMIc1s/8YK7jnLdmWP1cgNhhITHMDMf4XhgrsVZ4eEHvT2GG2ysDwSM5TuSxHXOPnL6uH8yydNkaUSmqLUylIt3KlUw9uAAhnGFyQIDAQAB",
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "https://r-ai.tsd.public.rakuten-it.com/*",
+    "https://powerpoint-genai-test-854259963531.asia-northeast1.run.app/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_icon": {
+      "16": "images/icon16.png",
+      "32": "images/icon32.png",
+      "48": "images/icon48.png",
+      "128": "images/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "images/icon16.png",
+    "32": "images/icon32.png",
+    "48": "images/icon48.png",
+    "128": "images/icon128.png"
+  },
+  "sandbox": {
+    "pages": ["sandbox/pptx-sandbox.html"]
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self';",
+    "sandbox": "sandbox allow-scripts allow-forms allow-popups allow-modals; script-src 'self'; object-src 'self';"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "other/pptxgen.bundle.js",
+        "other/tailwind-lite.css",
+        "other/chartjs-lite.js",
+        "other/tailwind.min.css",
+        "other/chart.js",
+        "safePptxExecutor.js",
+        "sandbox/pptx-sandbox.html",
+        "sandbox/pptx-runner.js",
+        "icon/**/*.svg",
+        "sandbox/icon/**/*.svg",
+        "logo.png",
+        "images/*.svg",
+        "images/Arrow.png",
+        "images/IMG_2072.jpeg",
+        "previewPanel.css",
+        "src/aiClient.js",
+        "src/apiClient.js",
+        "src/storage.js",
+        "src/pptxAnalyzer.js",
+        "lib/jszip.min.js",
+        "lib/pptx-preview.iife.js"
+      ],
+        "matches": [
+          "https://r-ai.tsd.public.rakuten-it.com/*"
+        ]
+    }
+  ],
+  "content_scripts": [
+    {
+        "matches": [
+          "https://r-ai.tsd.public.rakuten-it.com/*"
+        ],
+      "js": ["lib/jszip.min.js", "lib/pptx-preview.iife.js", "lz-string.min.js", "src/locales.js", "src/templateSlides.js", "src/previewPanel.js", "pptxDownloader.js"]
+    }
+  ]
+}

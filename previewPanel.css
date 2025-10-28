@@ -1,0 +1,448 @@
+/*
+ * ファイル名: previewPanel.css
+ * 説明:
+ *   プレビューパネルの見た目を整えるスタイルシート。
+ *   スライドプレビュー領域のレイアウトやスクロールバー、
+ *   多言語ドロップアップメニューやボタンの外観などを定義する。
+ */
+/* プレビュー全体を包むコンテナ */
+.preview-container {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* お知らせ内のテキストリンク */
+.announcement-text-link {
+  color: inherit;
+  text-decoration: underline;
+}
+
+.announcement-text-link:hover,
+.announcement-text-link:focus {
+  text-decoration: underline;
+}
+/* スライド複数表示時のスクロール設定 */
+.preview-container.multi-slide {
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 4px;
+  scrollbar-width: thin;
+}
+/* Firefox 用スクロールバー */
+.preview-container.multi-slide::-webkit-scrollbar {
+  width: 6px;
+}
+/* WebKit 用スクロールバートラック */
+.preview-container.multi-slide::-webkit-scrollbar-track {
+  background: transparent;
+}
+/* WebKit 用スクロールバーサム */
+.preview-container.multi-slide::-webkit-scrollbar-thumb {
+  background: rgba(0,0,0,0.2);
+  border-radius: 3px;
+}
+/* 各スライドの基本外観 */
+.preview-slide {
+  margin-bottom: 16px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  overflow: hidden;
+}
+
+/* JSON 表示モード時のタイトル */
+.json-slide-title {
+  font-size: 60px;
+  font-weight: bold;
+  margin-bottom: 24px;
+  line-height: 1.2;
+  text-align: left;
+}
+
+/* スライドプロンプトのスタイル */
+.json-slide-prompt {
+  font-size: 32px;
+  white-space: pre-wrap;
+  line-height: 1.4;
+  text-align: left;
+}
+
+/* JSON スライド全体 */
+.json-slide {
+  text-align: left;
+}
+
+/* ドロップアップメニューのベース */
+.dropup {
+  position: relative;
+  display: inline-block;
+}
+
+/* ドロップアップ内のリスト */
+.dropup ul {
+  display: none;
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+  background: #fff;
+  box-shadow: 0 -2px 6px rgba(0,0,0,0.2);
+  z-index: 1000;
+}
+
+/* メニューを開いた状態 */
+.dropup.open ul {
+  display: block;
+}
+
+/* メニュー項目 */
+.dropup ul li {
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+/* ホバー時の背景色 */
+.dropup ul li:hover {
+  background: #eee;
+}
+
+/* 言語切替ボタン */
+#lang-btn {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
+
+/* 言語ボタン内のアイコン */
+#lang-btn img {
+  width: 14px;
+  height: 14px;
+  margin-right: 4px;
+  filter: brightness(0) invert(1);
+}
+
+/* ========================================
+ * API経由ダウンロードボタンのスタイル
+ * ======================================== */
+
+/* API経由ダウンロードボタンの基本スタイル */
+#download-api-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  background-color: #4CAF50; /* 緑色でAPI経由を区別 */
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  transition: all 0.3s ease;
+  white-space: nowrap;
+  margin-left: 4px;
+}
+
+/* ホバー時 */
+#download-api-btn:hover:not(:disabled) {
+  background-color: #45a049;
+  box-shadow: 0 2px 8px rgba(76, 175, 80, 0.3);
+  transform: translateY(-1px);
+}
+
+/* アクティブ時（押下時） */
+#download-api-btn:active:not(:disabled) {
+  background-color: #3d8b40;
+  transform: translateY(0);
+}
+
+/* 無効時 */
+#download-api-btn:disabled {
+  background-color: #cccccc;
+  color: #666666;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* アクティブクラスが付いている時（pptxgenjsコードが検出された時） */
+#download-api-btn.active {
+  background-color: #4CAF50;
+  box-shadow: 0 0 12px rgba(76, 175, 80, 0.5);
+  animation: api-btn-pulse 2s infinite;
+}
+
+/* パルスアニメーション */
+@keyframes api-btn-pulse {
+  0%, 100% {
+    box-shadow: 0 0 12px rgba(76, 175, 80, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(76, 175, 80, 0.8);
+  }
+}
+
+/* ボタン内のアイコン */
+#download-api-btn img {
+  width: 14px;
+  height: 14px;
+  margin-right: 4px;
+  filter: brightness(0) invert(1);
+}
+
+/* レスポンシブ対応: モバイル画面 */
+@media (max-width: 768px) {
+  #download-api-btn {
+    font-size: 11px;
+    padding: 5px 10px;
+  }
+
+  #download-api-btn img {
+    width: 12px;
+    height: 12px;
+    margin-right: 3px;
+  }
+}
+
+/* API Settings Modal */
+#api-settings-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 10002;
+  padding: 24px;
+  box-sizing: border-box;
+}
+
+#api-settings-modal[aria-hidden="false"] {
+  display: flex;
+}
+
+#api-settings-btn {
+  background: transparent;
+  border: none;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+
+#api-settings-btn:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+#api-settings-btn:active {
+  background-color: rgba(0, 0, 0, 0.1);
+}
+
+/* CSV Modal Dialog (shared by PPTX upload and API settings) */
+.csv-modal-dialog {
+  background: white;
+  border-radius: 8px;
+  padding: 24px;
+  max-width: 800px;
+  width: 90%;
+  max-height: 90vh;
+  overflow-y: auto;
+  position: relative;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+}
+
+.csv-modal-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: transparent;
+  border: none;
+  font-size: 28px;
+  line-height: 1;
+  cursor: pointer;
+  color: #666;
+  padding: 4px 8px;
+  transition: color 0.2s;
+}
+
+.csv-modal-close:hover {
+  color: #000;
+}
+
+.csv-modal-actions {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid #e0e0e0;
+}
+
+.csv-modal-actions-left,
+.csv-modal-actions-right {
+  display: flex;
+  gap: 8px;
+}
+
+.csv-modal-actions button {
+  padding: 8px 16px;
+  border: 1px solid #ddd;
+  background: #f5f5f5;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.2s;
+}
+
+.csv-modal-actions button:hover {
+  background: #e0e0e0;
+}
+
+/* ========================================
+   Template List Styles
+   ======================================== */
+
+/* Templates Modal */
+#templates-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 10002;
+  padding: 24px;
+  box-sizing: border-box;
+}
+
+#templates-modal[aria-hidden="false"] {
+  display: flex;
+}
+
+/* テンプレート一覧コンテナ */
+#templates-list {
+  max-height: 500px;
+  overflow-y: auto;
+}
+
+/* テンプレートアイテム */
+.template-item {
+  display: flex;
+  gap: 16px;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 12px;
+  background: #fafafa;
+  transition: all 0.2s;
+}
+
+.template-item:hover {
+  background: #f0f0f0;
+  border-color: #bf0000;
+}
+
+/* サムネイルコンテナ */
+.template-thumbnail-container {
+  flex-shrink: 0;
+  width: 320px;
+  height: 180px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  overflow: hidden;
+  background: white;
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+}
+
+/* サムネイルiframe */
+.template-thumbnail {
+  width: 720px;
+  height: 405px;
+  border: none;
+  transform: scale(0.4444); /* 320/720 = 0.4444 */
+  transform-origin: top left;
+  pointer-events: none;
+  margin: 0;
+  padding: 0;
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: hidden;
+}
+
+/* サムネイルプレースホルダー */
+.template-thumbnail-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f5f5f5;
+}
+
+/* テンプレートコンテンツ */
+.template-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+/* テンプレートヘッダー */
+.template-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+/* テンプレート名 */
+.template-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: #333;
+  margin: 0;
+}
+
+/* テンプレート作成日時 */
+.template-date {
+  font-size: 13px;
+  color: #666;
+}
+
+/* テンプレート情報 */
+.template-info {
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: #777;
+}
+
+/* テンプレートアクション */
+.template-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.template-actions button {
+  padding: 6px 12px;
+  border: 1px solid #ddd;
+  background: white;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.2s;
+}
+
+.template-actions button:hover {
+  background: #bf0000;
+  color: white;
+  border-color: #bf0000;
+}
+
+/* テンプレートなしメッセージ */
+.no-templates {
+  text-align: center;
+  padding: 60px 20px;
+  color: #999;
+}

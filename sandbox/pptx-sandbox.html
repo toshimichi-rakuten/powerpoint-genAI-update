@@ -1,0 +1,20 @@
+<!--
+  ファイル名: pptx-sandbox.html
+  説明:
+    拡張機能が生成したコードを隔離環境で実行するための最小構成 HTML。
+    iframe として読み込まれ、pptxgen.bundle.js と safePptxExecutor.js を事前に読み込んだ上で
+    pptx-runner.js を動かし、外部と隔絶した状態で PPTX を生成して親ページに結果を返す。
+-->
+
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+    <!-- ライブラリ -->
+    <script src="../other/pptxgen.bundle.js"></script>
+    <script src="../safePptxExecutor.js"></script>
+    <!-- sandbox 実行ロジック（safe parser） -->
+    <script src="pptx-runner.js"></script>
+</head>
+<body></body>
+</html>
