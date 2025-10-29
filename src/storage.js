@@ -243,6 +243,16 @@ export function saveAnnouncementState(state) {
 
 // 登録状態を読み込みアプリに設定する
 export function loadRegStatus(app, cb) {
+  // ========================================
+  // テスト用: 初回登録フラグをデフォルトでOFF（登録済み状態）
+  // 本番に戻すときは以下の2行をコメントアウトして、下のコードのコメントを外す
+  app.previewRegDone = true;
+  app.pptxRegDone = true;
+  if (cb) cb();
+  return;
+  // ========================================
+
+  /* 本番用コード（上のreturnをコメントアウトしてこちらを有効化）
   if (chrome && chrome.storage && chrome.storage.local) {
     chrome.storage.local.get(
       ['previewRegDone', 'pptxRegDone', 'searchMode'],
@@ -260,6 +270,7 @@ export function loadRegStatus(app, cb) {
     if (search) app.searchMode = search;
     if (cb) cb();
   }
+  */
 }
 
 // 登録状態を保存する
