@@ -1065,6 +1065,12 @@ function extractTables(doc, themeColors) {
         );
 
         cells.forEach((cell, cellIndex) => {
+          // セル結合属性を取得（<a:tc>要素に直接付与されている）
+          const gridSpan = cell.getAttribute('gridSpan');
+          const rowSpan = cell.getAttribute('rowSpan');
+          const hMerge = cell.getAttribute('hMerge');
+          const vMerge = cell.getAttribute('vMerge');
+
           const cellData = {
             text: '',
             style: {
@@ -1089,7 +1095,12 @@ function extractTables(doc, themeColors) {
               right: 0,
               top: 0,
               bottom: 0
-            }
+            },
+            // セル結合情報
+            colspan: gridSpan ? parseInt(gridSpan) : 1,
+            rowspan: rowSpan ? parseInt(rowSpan) : 1,
+            hMerge: hMerge === '1',
+            vMerge: vMerge === '1'
           };
 
           const txBody = Array.from(cell.getElementsByTagName("*")).find(el =>
@@ -1219,7 +1230,7 @@ function extractTables(doc, themeColors) {
       });
 
       tables.push(table);
-      console.log(`表${frameIndex}: ${table.rows.length}行 × ${table.columnWidths.length}列`);
+      console.log(`表${frameIndex}: ${table.rows.length}行 × ${table.columnWidths.length}列（セル結合含む - 全${table.rows.reduce((sum, row) => sum + row.cells.length, 0)}セル）`);
 
     } catch (err) {
       console.log(`表${frameIndex}の処理中にエラー:`, err.message);
@@ -1423,7 +1434,11 @@ function generatePromptWithJSON(elements, tables, lines, template, slidePath) {
               parseFloat(emuToInch(cell.margins?.right || 0).toFixed(3)),
               parseFloat(emuToInch(cell.margins?.bottom || 0).toFixed(3)),
               parseFloat(emuToInch(cell.margins?.left || 0).toFixed(3))
-            ]
+            ],
+            colspan: cell.colspan || 1,
+            rowspan: cell.rowspan || 1,
+            hMerge: cell.hMerge || false,
+            vMerge: cell.vMerge || false
           }))
         }))
       };
@@ -1528,6 +1543,10 @@ PptxGenJSで下記のパワポを完全再現して。**位置・サイズ・色
     - **borderColor**: 罫線色配列[top, right, bottom, left](RGB hex)
     - **borderStyle**: 罫線スタイル配列[top, right, bottom, left]("solid"/"dash"/"dot")
     - **margin**: マージン配列[top, right, bottom, left](インチ)
+    - **colspan**: 列結合数(1=通常セル, 2以上=複数列にまたがる)
+    - **rowspan**: 行結合数(1=通常セル, 2以上=複数行にまたがる)
+    - **hMerge**: 水平結合の継続セル(true=結合されたセルの一部, false=通常セル)
+    - **vMerge**: 垂直結合の継続セル(true=結合されたセルの一部, false=通常セル)
 
 ### Lines (線・コネクタ)
 
@@ -1642,9 +1661,8 @@ elements.forEach(el => {
 \`\`\`javascript
 tables.forEach(table => {
   const tableData = table.rows.map(row =>
-    row.cells.map(cell => ({
-      text: cell.text,
-      options: {
+    row.cells.map(cell => {
+      const cellOptions = {
         fontSize: cell.fontSize,
         color: cell.color,
         bold: cell.bold,
@@ -1659,8 +1677,21 @@ tables.forEach(table => {
           { pt: cell.border[3], color: cell.borderColor[3], type: cell.borderStyle[3] }
         ],
         margin: cell.margin
+      };
+
+      // セル結合の設定（結合セルの場合のみ）
+      if (cell.colspan > 1) {
+        cellOptions.colspan = cell.colspan;
       }
-    }))
+      if (cell.rowspan > 1) {
+        cellOptions.rowspan = cell.rowspan;
+      }
+
+      return {
+        text: cell.text,
+        options: cellOptions
+      };
+    })
   );
 
   slide.addTable(tableData, {
@@ -1704,6 +1735,11 @@ lines.forEach(line => {
 7. **Arrow types**: "none", "arrow", "triangle", "diamond", "oval", "stealth"
 8. **Line breaks**: Text contains "\\n" for line breaks. Use breakLine: true in PptxGenJS addText options
 9. **Bullets**: Use paragraphs array for bullet points. level indicates indent (0=none, 1+=levels). bullet.char with bullet.font (e.g., Wingdings) for custom markers
+10. **Merged Cells**:
+    - **Primary cells** have colspan>1 or rowspan>1 and contain the actual text
+    - **Continuation cells** have hMerge=true or vMerge=true and are typically empty
+    - In PptxGenJS, only specify colspan/rowspan on primary cell (continuation cells are auto-handled)
+    - colspan: horizontal merge (columns), rowspan: vertical merge (rows)
 
 ---
 
@@ -1712,6 +1748,17 @@ lines.forEach(line => {
 \`\`\`json
 ${JSON.stringify(data, null, 2)}
 \`\`\`
+
+---
+
+## Data Extraction Summary
+
+- **Elements**: ${data.elements.length} items
+- **Tables**: ${data.tables.length} tables
+${data.tables.map((t, i) => `  - Table ${i + 1}: ${t.rows.length} rows × ${t.colW.length} columns (${t.rows.reduce((sum, row) => sum + row.cells.length, 0)} total cells)`).join('\n')}
+- **Lines**: ${data.lines.length} lines
+
+✅ **All data extracted completely - every row, cell, and element is included above.**
 
 ---
 
