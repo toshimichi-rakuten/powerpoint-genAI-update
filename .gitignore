@@ -22,3 +22,9 @@ build/
 
 # Test files
 test_*.js
+
+# Temporary folders
+temp_*/
+
+# Generated PowerPoint files
+*.pptx

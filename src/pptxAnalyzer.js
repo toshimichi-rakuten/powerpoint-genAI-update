@@ -838,31 +838,61 @@ async function extractSingleShape(shape, index, themeColors, masterStyles, zip, 
 
           if (pPr) {
             // インデントレベルを取得
+            // 標準的なPowerPointの箇条書きインデント: 285750 EMU per level
+            // marL=285750 → level 0 (1段目), marL=571500 → level 1 (2段目)
             const marL = pPr.getAttribute('marL');
             if (marL) {
-              paragraphData.level = Math.round(parseInt(marL, 10) / 285750);
+              const marLValue = parseInt(marL, 10);
+              paragraphData.level = Math.max(0, Math.floor(marLValue / 285750) - 1);
+              // marL=0の場合はlevel 0、marL=285750もlevel 0、marL=571500はlevel 1
+              if (marLValue === 0) {
+                paragraphData.level = 0;
+              } else if (marLValue <= 285750) {
+                paragraphData.level = 0;
+              } else {
+                paragraphData.level = Math.floor(marLValue / 285750) - 1;
+              }
             }
 
-            // 箇条書きマーカーを確認
-            const buChar = Array.from(pPr.getElementsByTagName("*")).find(el =>
-              el.tagName.endsWith(":buChar") || el.localName === "buChar"
+            // 箇条書きなし(buNone)を明示的にチェック
+            const buNone = Array.from(pPr.getElementsByTagName("*")).find(el =>
+              el.tagName.endsWith(":buNone") || el.localName === "buNone"
             );
 
-            const buFont = Array.from(pPr.getElementsByTagName("*")).find(el =>
-              el.tagName.endsWith(":buFont") || el.localName === "buFont"
-            );
+            // buNoneが存在する場合は箇条書きなしとして処理
+            if (buNone) {
+              paragraphData.bullet = null;
+            } else {
+              // 箇条書きマーカーを確認
+              const buChar = Array.from(pPr.getElementsByTagName("*")).find(el =>
+                el.tagName.endsWith(":buChar") || el.localName === "buChar"
+              );
 
-            const buAutoNum = Array.from(pPr.getElementsByTagName("*")).find(el =>
-              el.tagName.endsWith(":buAutoNum") || el.localName === "buAutoNum"
-            );
+              const buFont = Array.from(pPr.getElementsByTagName("*")).find(el =>
+                el.tagName.endsWith(":buFont") || el.localName === "buFont"
+              );
 
-            if (buChar || buFont || buAutoNum) {
-              paragraphData.bullet = {
-                type: buAutoNum ? 'number' : 'char',
-                char: buChar ? (buChar.getAttribute('char') || '•') : '•',
-                font: buFont ? (buFont.getAttribute('typeface') || '') : '',
-                numType: buAutoNum ? (buAutoNum.getAttribute('type') || 'arabicPeriod') : undefined
-              };
+              const buAutoNum = Array.from(pPr.getElementsByTagName("*")).find(el =>
+                el.tagName.endsWith(":buAutoNum") || el.localName === "buAutoNum"
+              );
+
+              // buCharまたはbuAutoNumが存在する場合のみ箇条書きと判定
+              if (buChar || buAutoNum) {
+                paragraphData.bullet = {
+                  type: buAutoNum ? 'number' : 'char',
+                  char: buChar ? (buChar.getAttribute('char') || '•') : '•',
+                  font: buFont ? (buFont.getAttribute('typeface') || '') : '',
+                  numType: buAutoNum ? (buAutoNum.getAttribute('type') || 'arabicPeriod') : undefined
+                };
+              } else if (buFont && paragraphData.level > 0) {
+                // buFontだけがある場合、レベルが0より大きければデフォルトの箇条書きとする
+                paragraphData.bullet = {
+                  type: 'char',
+                  char: '•',
+                  font: buFont.getAttribute('typeface') || '',
+                  numType: undefined
+                };
+              }
             }
           }
 
@@ -2067,8 +2097,18 @@ elements.forEach(el => {
     // 箇条書きがある場合は段落ごとに処理
     if (el.paragraphs && el.paragraphs.length > 0) {
       const textContent = el.paragraphs.flatMap(p => {
-        // runs配列がある場合は複数ラン対応
-        if (p.runs && p.runs.length > 0) {
+        // runs配列がある場合（空配列も含む）
+        if (p.runs !== undefined) {
+          // 空のruns配列の場合、段落レベルで箇条書きを設定
+          if (p.runs.length === 0) {
+            // 空の段落は改行として扱い、箇条書きプロパティは付けない
+            return { text: "", options: { breakLine: true } };
+          }
+
+          // runs配列に要素がある場合
+          // ⚠️ 重要: 段落内の複数runを正しく処理するために：
+          // - 最初のrunにのみbulletプロパティを設定
+          // - 2つ目以降のrunはbreakLine: falseを明示的に設定
           return p.runs.map((run, runIndex) => {
             const runOptions = {
               fontSize: run.fontSize,
@@ -2078,27 +2118,22 @@ elements.forEach(el => {
               fontFace: run.fontFace,
               underline: run.underline !== 'none' ? { style: run.underline } : undefined,
               subscript: run.baseline < 0,
-              superscript: run.baseline > 0,
-              breakLine: run.isBreak
+              superscript: run.baseline > 0
             };
 
-            // 最初のランのみ箇条書き設定
-            if (runIndex === 0) {
-              runOptions.bullet = false;
-              runOptions.indentLevel = p.level;
+            // breakLineの処理: isBreakがtrueの場合のみ改行
+            if (run.isBreak) {
+              runOptions.breakLine = true;
+            }
 
+            // 最初のrunにのみ箇条書きプロパティを設定
+            if (runIndex === 0) {
               if (p.bullet) {
-                if (p.bullet.type === 'char') {
-                  runOptions.bullet = {
-                    type: p.bullet.char,
-                    characterCode: p.bullet.char.charCodeAt(0).toString(16)
-                  };
-                  if (p.bullet.font) {
-                    runOptions.bullet.fontFace = p.bullet.font;
-                  }
-                } else if (p.bullet.type === 'number') {
-                  runOptions.bullet = { type: p.bullet.numType || 'number' };
-                }
+                runOptions.bullet = true;
+                runOptions.indentLevel = p.level || 0;
+              } else {
+                runOptions.bullet = false;
+                runOptions.indentLevel = 0;
               }
             }
 
@@ -2107,23 +2142,9 @@ elements.forEach(el => {
         } else {
           // runs配列がない場合は従来の方法
           const options = {
-            bullet: false,
-            indentLevel: p.level
+            bullet: p.bullet ? true : false,
+            indentLevel: p.level || 0
           };
-
-          if (p.bullet) {
-            if (p.bullet.type === 'char') {
-              options.bullet = {
-                type: p.bullet.char,
-                characterCode: p.bullet.char.charCodeAt(0).toString(16)
-              };
-              if (p.bullet.font) {
-                options.bullet.fontFace = p.bullet.font;
-              }
-            } else if (p.bullet.type === 'number') {
-              options.bullet = { type: p.bullet.numType || 'number' };
-            }
-          }
 
           return { text: p.text, options };
         }
