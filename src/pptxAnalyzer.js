@@ -745,7 +745,8 @@ async function extractElements(doc, themeColors, masterStyles, zip, slidePath) {
           const paragraphData = {
             text: '',
             level: 0,
-            bullet: null
+            bullet: null,
+            runs: []  // 追加: 各テキストランの配列
           };
 
           // 段落プロパティ（<a:pPr>）から箇条書き情報を取得
@@ -787,19 +788,88 @@ async function extractElements(doc, themeColors, masterStyles, zip, slidePath) {
             }
           }
 
-          // 段落内のテキストを取得
+          // 段落内の各テキストランを個別に解析
           Array.from(p.childNodes).forEach(node => {
             if (node.nodeType === 1) {
               const tagName = node.tagName || node.localName;
+
+              // テキストラン <a:r>
               if (tagName && (tagName.endsWith(':r') || tagName === 'r')) {
+                const runData = {
+                  text: '',
+                  fontSize: 1800,  // デフォルト18pt
+                  color: '000000',
+                  bold: false,
+                  italic: false,
+                  font: '',
+                  underline: 'none',
+                  baseline: 0  // 上付き・下付き文字用
+                };
+
+                // ランプロパティ <a:rPr> を取得
+                const rPr = Array.from(node.getElementsByTagName("*")).find(el =>
+                  el.tagName.endsWith(":rPr") || el.localName === "rPr"
+                );
+
+                if (rPr) {
+                  // フォントサイズ
+                  const sz = rPr.getAttribute('sz');
+                  if (sz) runData.fontSize = parseInt(sz);
+
+                  // 太字
+                  const b = rPr.getAttribute('b');
+                  if (b === '1') runData.bold = true;
+
+                  // 斜体
+                  const i = rPr.getAttribute('i');
+                  if (i === '1') runData.italic = true;
+
+                  // 下線
+                  const u = rPr.getAttribute('u');
+                  if (u) runData.underline = u;
+
+                  // 上付き・下付き文字
+                  const baseline = rPr.getAttribute('baseline');
+                  if (baseline) runData.baseline = parseInt(baseline);
+
+                  // 色
+                  const solidFill = Array.from(rPr.getElementsByTagName("*")).find(el =>
+                    el.tagName.endsWith(":solidFill") || el.localName === "solidFill"
+                  );
+                  if (solidFill) {
+                    runData.color = extractColor(solidFill, themeColors);
+                  }
+
+                  // フォント
+                  const latin = Array.from(rPr.getElementsByTagName("*")).find(el =>
+                    el.tagName.endsWith(":latin") || el.localName === "latin"
+                  );
+                  if (latin) {
+                    runData.font = latin.getAttribute('typeface') || '';
+                  }
+                }
+
+                // テキスト取得 <a:t>
                 const tNode = Array.from(node.getElementsByTagName("*")).find(el =>
                   el.tagName.endsWith(":t") || el.localName === "t"
                 );
                 if (tNode) {
-                  paragraphData.text += tNode.textContent || '';
+                  runData.text = tNode.textContent || '';
+                  paragraphData.text += runData.text;  // 全体のテキストにも追加
                 }
-              } else if (tagName && (tagName.endsWith(':br') || tagName === 'br')) {
+
+                // ランをリストに追加（空でない場合のみ）
+                if (runData.text) {
+                  paragraphData.runs.push(runData);
+                }
+              }
+              // 改行 <a:br>
+              else if (tagName && (tagName.endsWith(':br') || tagName === 'br')) {
                 paragraphData.text += '\n';
+                paragraphData.runs.push({
+                  text: '\n',
+                  isBreak: true
+                });
               }
             }
           });
@@ -946,9 +1016,7 @@ async function extractElements(doc, themeColors, masterStyles, zip, slidePath) {
         );
 
         if (ln) {
-          const w = ln.getAttribute('w');
-          element.borderWidth = w ? parseInt(w) : 12700;
-
+          // <a:noFill>が存在する場合は枠線なし
           const lnNoFill = Array.from(ln.childNodes).find(node => {
             if (node.nodeType === 1) {
               const tagName = node.tagName || node.localName;
@@ -957,12 +1025,22 @@ async function extractElements(doc, themeColors, masterStyles, zip, slidePath) {
             return false;
           });
 
-          const borderSolidFill = Array.from(ln.getElementsByTagName("*")).find(el =>
-            el.tagName.endsWith(":solidFill") || el.localName === "solidFill"
-          );
+          if (lnNoFill) {
+            // 枠線なし
+            element.borderWidth = 0;
+            element.borderColor = '';
+          } else {
+            // 枠線あり
+            const w = ln.getAttribute('w');
+            element.borderWidth = w ? parseInt(w) : 12700;
 
-          if (!lnNoFill && borderSolidFill) {
-            element.borderColor = extractColor(borderSolidFill, themeColors);
+            const borderSolidFill = Array.from(ln.getElementsByTagName("*")).find(el =>
+              el.tagName.endsWith(":solidFill") || el.localName === "solidFill"
+            );
+
+            if (borderSolidFill) {
+              element.borderColor = extractColor(borderSolidFill, themeColors);
+            }
           }
         }
       }
@@ -1065,6 +1143,12 @@ function extractTables(doc, themeColors) {
         );
 
         cells.forEach((cell, cellIndex) => {
+          // セル結合属性を取得（<a:tc>要素に直接付与されている）
+          const gridSpan = cell.getAttribute('gridSpan');
+          const rowSpan = cell.getAttribute('rowSpan');
+          const hMerge = cell.getAttribute('hMerge');
+          const vMerge = cell.getAttribute('vMerge');
+
           const cellData = {
             text: '',
             style: {
@@ -1089,7 +1173,12 @@ function extractTables(doc, themeColors) {
               right: 0,
               top: 0,
               bottom: 0
-            }
+            },
+            // セル結合情報
+            colspan: gridSpan ? parseInt(gridSpan) : 1,
+            rowspan: rowSpan ? parseInt(rowSpan) : 1,
+            hMerge: hMerge === '1',
+            vMerge: vMerge === '1'
           };
 
           const txBody = Array.from(cell.getElementsByTagName("*")).find(el =>
@@ -1219,7 +1308,7 @@ function extractTables(doc, themeColors) {
       });
 
       tables.push(table);
-      console.log(`表${frameIndex}: ${table.rows.length}行 × ${table.columnWidths.length}列`);
+      console.log(`表${frameIndex}: ${table.rows.length}行 × ${table.columnWidths.length}列（セル結合含む - 全${table.rows.reduce((sum, row) => sum + row.cells.length, 0)}セル）`);
 
     } catch (err) {
       console.log(`表${frameIndex}の処理中にエラー:`, err.message);
@@ -1346,6 +1435,10 @@ function generatePromptWithJSON(elements, tables, lines, template, slidePath) {
       const wEmu = el.size?.width || 0;
       const hEmu = el.size?.height || 0;
 
+      // alignmentを変換（PptxGenJS形式に）
+      const alignmentMap = { "l": "left", "ctr": "center", "r": "right" };
+      const align = alignmentMap[el.style?.alignment] || el.style?.alignment || "left";
+
       const elementData = {
         id: index + 1,
         text: el.text || "",
@@ -1357,18 +1450,39 @@ function generatePromptWithJSON(elements, tables, lines, template, slidePath) {
         color: normalizeColorHex(el.style?.color || "000000"),
         bold: el.style?.bold || false,
         italic: el.style?.italic || false,
-        font: el.style?.typeface || "",
-        align: el.style?.alignment || "l",
-        fill: normalizeColorHex(el.fillColor) || "",
-        borderColor: normalizeColorHex(el.borderColor) || "",
-        borderWidth: parseFloat(emuToPoint(el.borderWidth || 0).toFixed(2))
+        fontFace: el.style?.typeface || "",  // font → fontFace
+        align: align,  // 変換済み
       };
+
+      // fillをオブジェクト形式に
+      if (el.fillColor) {
+        elementData.fill = { color: normalizeColorHex(el.fillColor) };
+      }
+
+      // lineをオブジェクト形式に（枠線がある場合のみ）
+      if (el.borderColor && el.borderWidth > 0) {
+        elementData.line = {
+          color: normalizeColorHex(el.borderColor),
+          pt: parseFloat(emuToPoint(el.borderWidth).toFixed(2))
+        };
+      }
 
       if (el.paragraphs && el.paragraphs.length > 0) {
         elementData.paragraphs = el.paragraphs.map(p => ({
           text: p.text,
           level: p.level,
-          bullet: p.bullet
+          bullet: p.bullet,
+          runs: p.runs ? p.runs.map(run => ({
+            text: run.text,
+            fontSize: parseFloat(fontSizeToPoint(parseInt(run.fontSize || 1800)).toFixed(1)),
+            color: normalizeColorHex(run.color || '000000'),
+            bold: run.bold || false,
+            italic: run.italic || false,
+            fontFace: run.font || '',  // font → fontFace
+            underline: run.underline || 'none',
+            baseline: run.baseline || 0,
+            isBreak: run.isBreak || false
+          })) : undefined
         }));
       }
 
@@ -1391,40 +1505,49 @@ function generatePromptWithJSON(elements, tables, lines, template, slidePath) {
         rows: tbl.rows.map(row => ({
           h: parseFloat(emuToInch(row.height).toFixed(3)),
           isHeader: row.isHeader || false,
-          cells: row.cells.map(cell => ({
-            text: cell.text,
-            fontSize: parseFloat(fontSizeToPoint(parseInt(cell.style?.fontSize) || 1400).toFixed(1)),
-            color: cell.style?.color || "",
-            bold: cell.style?.bold || false,
-            italic: cell.style?.italic || false,
-            font: cell.style?.typeface || "",
-            align: cell.style?.alignment || "l",
-            fill: cell.fill?.color || "",
-            border: [
-              parseFloat(emuToPoint(cell.borders?.top?.width || 0).toFixed(2)),
-              parseFloat(emuToPoint(cell.borders?.right?.width || 0).toFixed(2)),
-              parseFloat(emuToPoint(cell.borders?.bottom?.width || 0).toFixed(2)),
-              parseFloat(emuToPoint(cell.borders?.left?.width || 0).toFixed(2))
-            ],
-            borderColor: [
-              cell.borders?.top?.color || "",
-              cell.borders?.right?.color || "",
-              cell.borders?.bottom?.color || "",
-              cell.borders?.left?.color || "",
-            ],
-            borderStyle: [
-              cell.borders?.top?.dashType || "solid",
-              cell.borders?.right?.dashType || "solid",
-              cell.borders?.bottom?.dashType || "solid",
-              cell.borders?.left?.dashType || "solid"
-            ],
-            margin: [
-              parseFloat(emuToInch(cell.margins?.top || 0).toFixed(3)),
-              parseFloat(emuToInch(cell.margins?.right || 0).toFixed(3)),
-              parseFloat(emuToInch(cell.margins?.bottom || 0).toFixed(3)),
-              parseFloat(emuToInch(cell.margins?.left || 0).toFixed(3))
-            ]
-          }))
+          cells: row.cells.map(cell => {
+            // alignとvalignを変換
+            const alignmentMap = { "l": "left", "ctr": "center", "r": "right" };
+            const valignMap = { "t": "top", "m": "middle", "b": "bottom" };
+            const align = alignmentMap[cell.style?.alignment] || cell.style?.alignment || "left";
+            const valign = valignMap[cell.style?.valign] || cell.style?.valign || "top";
+
+            const cellData = {
+              text: cell.text,
+              fontSize: parseFloat(fontSizeToPoint(parseInt(cell.style?.fontSize) || 1400).toFixed(1)),
+              color: cell.style?.color || "",
+              bold: cell.style?.bold || false,
+              italic: cell.style?.italic || false,
+              fontFace: cell.style?.typeface || "",  // font → fontFace
+              align: align,  // 変換済み
+              valign: valign,  // 変換済み
+              margin: [
+                parseFloat(emuToInch(cell.margins?.top || 0).toFixed(3)),
+                parseFloat(emuToInch(cell.margins?.right || 0).toFixed(3)),
+                parseFloat(emuToInch(cell.margins?.bottom || 0).toFixed(3)),
+                parseFloat(emuToInch(cell.margins?.left || 0).toFixed(3))
+              ],
+              colspan: cell.colspan || 1,
+              rowspan: cell.rowspan || 1,
+              hMerge: cell.hMerge || false,
+              vMerge: cell.vMerge || false
+            };
+
+            // fillをオブジェクト形式に
+            if (cell.fill?.color) {
+              cellData.fill = { color: cell.fill.color };
+            }
+
+            // borderをオブジェクト形式に（情報として保持、ただしPptxGenJSでは使用不可）
+            cellData.border = {
+              top: { pt: parseFloat(emuToPoint(cell.borders?.top?.width || 0).toFixed(2)), color: cell.borders?.top?.color || "" },
+              right: { pt: parseFloat(emuToPoint(cell.borders?.right?.width || 0).toFixed(2)), color: cell.borders?.right?.color || "" },
+              bottom: { pt: parseFloat(emuToPoint(cell.borders?.bottom?.width || 0).toFixed(2)), color: cell.borders?.bottom?.color || "" },
+              left: { pt: parseFloat(emuToPoint(cell.borders?.left?.width || 0).toFixed(2)), color: cell.borders?.left?.color || "" }
+            };
+
+            return cellData;
+          })
         }))
       };
     }),
@@ -1440,11 +1563,13 @@ function generatePromptWithJSON(elements, tables, lines, template, slidePath) {
         y: parseFloat(emuToInch(yEmu).toFixed(3)),
         w: parseFloat(emuToInch(wEmu).toFixed(3)),
         h: parseFloat(emuToInch(hEmu).toFixed(3)),
-        lineWidth: parseFloat(emuToPoint(line.lineWidth || 0).toFixed(2)),
-        lineColor: normalizeColorHex(line.lineColor || "000000"),
-        lineDash: line.lineDash || "solid",
-        arrowStart: line.arrowStart || "none",
-        arrowEnd: line.arrowEnd || "none"
+        line: {
+          pt: parseFloat(emuToPoint(line.lineWidth || 0).toFixed(2)),
+          color: normalizeColorHex(line.lineColor || "000000"),
+          dashType: line.lineDash || "solid",
+          beginArrowType: line.arrowStart !== "none" ? line.arrowStart : undefined,
+          endArrowType: line.arrowEnd !== "none" ? line.arrowEnd : undefined
+        }
       };
     })
   };
@@ -1483,7 +1608,7 @@ PptxGenJSで下記のパワポを完全再現して。**位置・サイズ・色
 
 ### Elements (図形・テキストボックス)
 
-各要素:
+各要素（**すべてPptxGenJS API形式で出力済み**）:
 - **id**: ID
 - **text**: テキスト内容（全段落を結合）
 - **x, y**: 位置(インチ)
@@ -1491,23 +1616,32 @@ PptxGenJSで下記のパワポを完全再現して。**位置・サイズ・色
 - **fontSize**: フォントサイズ(pt)
 - **color**: テキスト色(RGB hex, "000000"=黒)
 - **bold, italic**: スタイル
-- **font**: フォント名
-- **align**: 配置("l"=左, "ctr"=中央, "r"=右)
-- **fill**: 背景色(RGB hex, ""=透明)
-- **borderColor**: 枠線色(RGB hex, ""=枠線なし)
-- **borderWidth**: 枠線太さ(pt)
+- **fontFace**: フォント名（PptxGenJS形式）
+- **align**: 配置("left"/"center"/"right"）（PptxGenJS形式）
+- **fill**: 背景色オブジェクト { color: "FFFFFF" } または undefined
+- **line**: 枠線オブジェクト { color: "000000", pt: 1.5 } または undefined
 - **paragraphs**: 段落配列（箇条書き含む、存在する場合のみ）
-  - **text**: 段落テキスト
+  - **text**: 段落テキスト（全ランを結合した文字列）
   - **level**: インデントレベル(0=なし, 1以上=箇条書きレベル)
   - **bullet**: 箇条書き情報(nullは箇条書きなし)
     - **type**: "char"=文字マーカー, "number"=番号付き
     - **char**: 箇条書き文字（例: "•", "n"）
     - **font**: 箇条書きフォント（例: "Wingdings"）
     - **numType**: 番号タイプ（type="number"の場合、例: "arabicPeriod"）
+  - **runs**: テキストラン配列（段落内の各テキスト断片、途中で色や太字が変わる場合に使用）
+    - **text**: ランのテキスト
+    - **fontSize**: フォントサイズ(pt)
+    - **color**: テキスト色(RGB hex)
+    - **bold**: 太字
+    - **italic**: 斜体
+    - **fontFace**: フォント名（PptxGenJS形式）
+    - **underline**: 下線 ("none"/"sng"/"dbl")
+    - **baseline**: 上付き・下付き文字 (0=通常, 正=上付き, 負=下付き)
+    - **isBreak**: 改行の場合true
 
 ### Tables (表)
 
-各表:
+各表（すべてPptxGenJS API形式で出力済み）:
 - **id**: ID
 - **x, y**: 位置(インチ)
 - **w, h**: サイズ(インチ)
@@ -1521,25 +1655,29 @@ PptxGenJSで下記のパワポを完全再現して。**位置・サイズ・色
     - **fontSize**: フォントサイズ(pt)
     - **color**: テキスト色(RGB hex)
     - **bold, italic**: スタイル
-    - **font**: フォント名
-    - **align**: 配置
-    - **fill**: セル背景色(RGB hex)
-    - **border**: 罫線太さ配列[top, right, bottom, left](pt)
-    - **borderColor**: 罫線色配列[top, right, bottom, left](RGB hex)
-    - **borderStyle**: 罫線スタイル配列[top, right, bottom, left]("solid"/"dash"/"dot")
+    - **fontFace**: フォント名（PptxGenJS形式）
+    - **align**: 配置("left"/"center"/"right"）（PptxGenJS形式）
+    - **valign**: 垂直配置("top"/"middle"/"bottom"）（PptxGenJS形式）
+    - **fill**: セル背景色オブジェクト { color: "FFFFFF" } または undefined
+    - **border**: 罫線オブジェクト { top: { pt: 1.0, color: "000000" }, right: {...}, bottom: {...}, left: {...} }（PptxGenJS形式、typeやdashTypeは含まない）
     - **margin**: マージン配列[top, right, bottom, left](インチ)
+    - **colspan**: 列結合数(1=通常セル, 2以上=複数列にまたがる)
+    - **rowspan**: 行結合数(1=通常セル, 2以上=複数行にまたがる)
+    - **hMerge**: 水平結合の継続セル(true=結合されたセルの一部, false=通常セル)
+    - **vMerge**: 垂直結合の継続セル(true=結合されたセルの一部, false=通常セル)
 
 ### Lines (線・コネクタ)
 
-各線:
+各線（すべてPptxGenJS API形式で出力済み）:
 - **id**: ID
 - **x, y**: 開始位置(インチ)
 - **w, h**: 幅・高さ(インチ) ※wが線の長さ(水平), hが高さ(垂直)
-- **lineWidth**: 線の太さ(pt)
-- **lineColor**: 線の色(RGB hex)
-- **lineDash**: 線のスタイル("solid"=実線, "dash"=破線, "dot"=点線, "dashDot"=一点鎖線, "lgDash"=長い破線, "sysDot"=システム点線など)
-- **arrowStart**: 開始側の矢印("none"=なし, "arrow"=矢印, "triangle"=三角, "diamond"=菱形, "oval"=丸など)
-- **arrowEnd**: 終了側の矢印(同上)
+- **line**: 線プロパティオブジェクト（PptxGenJS形式）
+  - **pt**: 線の太さ(pt)
+  - **color**: 線の色(RGB hex)
+  - **dashType**: 線のスタイル("solid"=実線, "dash"=破線, "dot"=点線, "dashDot"=一点鎖線, "lgDash"=長い破線, "sysDot"=システム点線など)
+  - **beginArrowType**: 開始側の矢印("arrow"=矢印, "triangle"=三角, "diamond"=菱形, "oval"=丸など、なしの場合はundefined)
+  - **endArrowType**: 終了側の矢印(同上、なしの場合はundefined)
 
 ---
 
@@ -1584,40 +1722,73 @@ template.fixedImages.forEach(img => {
 elements.forEach(el => {
   // 箇条書きがある場合は段落ごとに処理
   if (el.paragraphs && el.paragraphs.length > 0) {
-    const textContent = el.paragraphs.map(p => {
-      const options = {
-        bullet: false,
-        indentLevel: p.level
-      };
-
-      // 箇条書き設定
-      if (p.bullet) {
-        if (p.bullet.type === 'char') {
-          options.bullet = {
-            type: p.bullet.char,
-            characterCode: p.bullet.char.charCodeAt(0).toString(16)
+    const textContent = el.paragraphs.flatMap(p => {
+      // runs配列がある場合は複数ラン対応
+      if (p.runs && p.runs.length > 0) {
+        return p.runs.map((run, runIndex) => {
+          const runOptions = {
+            fontSize: run.fontSize,
+            color: run.color,
+            bold: run.bold,
+            italic: run.italic,
+            fontFace: run.fontFace,
+            underline: run.underline !== 'none' ? { style: run.underline } : undefined,
+            subscript: run.baseline < 0,
+            superscript: run.baseline > 0,
+            breakLine: run.isBreak
           };
-          if (p.bullet.font) {
-            options.bullet.fontFace = p.bullet.font;
-          }
-        } else if (p.bullet.type === 'number') {
-          options.bullet = { type: p.bullet.numType || 'number' };
-        }
-      }
 
-      return { text: p.text, options };
+          // 最初のランのみ箇条書き設定
+          if (runIndex === 0) {
+            runOptions.bullet = false;
+            runOptions.indentLevel = p.level;
+
+            if (p.bullet) {
+              if (p.bullet.type === 'char') {
+                runOptions.bullet = {
+                  type: p.bullet.char,
+                  characterCode: p.bullet.char.charCodeAt(0).toString(16)
+                };
+                if (p.bullet.font) {
+                  runOptions.bullet.fontFace = p.bullet.font;
+                }
+              } else if (p.bullet.type === 'number') {
+                runOptions.bullet = { type: p.bullet.numType || 'number' };
+              }
+            }
+          }
+
+          return { text: run.text, options: runOptions };
+        });
+      } else {
+        // runs配列がない場合は従来の方法
+        const options = {
+          bullet: false,
+          indentLevel: p.level
+        };
+
+        if (p.bullet) {
+          if (p.bullet.type === 'char') {
+            options.bullet = {
+              type: p.bullet.char,
+              characterCode: p.bullet.char.charCodeAt(0).toString(16)
+            };
+            if (p.bullet.font) {
+              options.bullet.fontFace = p.bullet.font;
+            }
+          } else if (p.bullet.type === 'number') {
+            options.bullet = { type: p.bullet.numType || 'number' };
+          }
+        }
+
+        return { text: p.text, options };
+      }
     });
 
     slide.addText(textContent, {
       x: el.x, y: el.y, w: el.w, h: el.h,
-      fontSize: el.fontSize,
-      color: el.color,
-      bold: el.bold,
-      italic: el.italic,
-      fontFace: el.font,
-      align: el.align === "l" ? "left" : el.align === "ctr" ? "center" : "right",
-      fill: el.fill ? { color: el.fill } : undefined,
-      line: el.borderColor ? { color: el.borderColor, pt: el.borderWidth } : undefined
+      fill: el.fill,
+      line: el.line
     });
   } else {
     // 箇条書きなしの場合は従来通り
@@ -1627,10 +1798,10 @@ elements.forEach(el => {
       color: el.color,
       bold: el.bold,
       italic: el.italic,
-      fontFace: el.font,
-      align: el.align === "l" ? "left" : el.align === "ctr" ? "center" : "right",
-      fill: el.fill ? { color: el.fill } : undefined,
-      line: el.borderColor ? { color: el.borderColor, pt: el.borderWidth } : undefined,
+      fontFace: el.fontFace,
+      align: el.align,
+      fill: el.fill,
+      line: el.line,
       breakLine: true
     });
   }
@@ -1642,25 +1813,38 @@ elements.forEach(el => {
 \`\`\`javascript
 tables.forEach(table => {
   const tableData = table.rows.map(row =>
-    row.cells.map(cell => ({
-      text: cell.text,
-      options: {
+    row.cells.map(cell => {
+      const cellOptions = {
         fontSize: cell.fontSize,
         color: cell.color,
         bold: cell.bold,
         italic: cell.italic,
-        fontFace: cell.font,
-        align: cell.align === "l" ? "left" : cell.align === "ctr" ? "center" : "right",
-        fill: cell.fill ? { color: cell.fill } : undefined,
+        fontFace: cell.fontFace,
+        align: cell.align,
+        valign: cell.valign,
+        fill: cell.fill,
         border: [
-          { pt: cell.border[0], color: cell.borderColor[0], type: cell.borderStyle[0] },
-          { pt: cell.border[1], color: cell.borderColor[1], type: cell.borderStyle[1] },
-          { pt: cell.border[2], color: cell.borderColor[2], type: cell.borderStyle[2] },
-          { pt: cell.border[3], color: cell.borderColor[3], type: cell.borderStyle[3] }
+          { pt: cell.border.top.pt, color: cell.border.top.color },
+          { pt: cell.border.right.pt, color: cell.border.right.color },
+          { pt: cell.border.bottom.pt, color: cell.border.bottom.color },
+          { pt: cell.border.left.pt, color: cell.border.left.color }
         ],
         margin: cell.margin
+      };
+
+      // セル結合の設定（結合セルの場合のみ）
+      if (cell.colspan > 1) {
+        cellOptions.colspan = cell.colspan;
       }
-    }))
+      if (cell.rowspan > 1) {
+        cellOptions.rowspan = cell.rowspan;
+      }
+
+      return {
+        text: cell.text,
+        options: cellOptions
+      };
+    })
   );
 
   slide.addTable(tableData, {
@@ -1674,19 +1858,13 @@ tables.forEach(table => {
 ### 線・コネクタ
 
 \`\`\`javascript
-lines.forEach(line => {
+lines.forEach(lineItem => {
   slide.addShape("line", {
-    x: line.x,
-    y: line.y,
-    w: line.w,
-    h: line.h,
-    line: {
-      color: line.lineColor,
-      pt: line.lineWidth,
-      dashType: line.lineDash,
-      beginArrowType: line.arrowStart === "none" ? undefined : line.arrowStart,
-      endArrowType: line.arrowEnd === "none" ? undefined : line.arrowEnd
-    }
+    x: lineItem.x,
+    y: lineItem.y,
+    w: lineItem.w,
+    h: lineItem.h,
+    line: lineItem.line
   });
 });
 \`\`\`
@@ -1695,15 +1873,26 @@ lines.forEach(line => {
 
 ## Important Notes
 
-1. **Colors**: 6-digit RGB hex ("FF0000"=red, ""=none)
-2. **Alignment**: "l"→"left", "ctr"→"center", "r"→"right"
-3. **Units**: All positions/sizes in inches, fonts in points
-4. **Empty values**: ""=transparent/no border, 0=no border
-5. **Header rows**: hasHeader=true means row 1 is header (already has proper background color)
-6. **Line styles**: "solid", "dash", "dot", "dashDot", "lgDash", "lgDashDot", "sysDash", "sysDot"
-7. **Arrow types**: "none", "arrow", "triangle", "diamond", "oval", "stealth"
-8. **Line breaks**: Text contains "\\n" for line breaks. Use breakLine: true in PptxGenJS addText options
-9. **Bullets**: Use paragraphs array for bullet points. level indicates indent (0=none, 1+=levels). bullet.char with bullet.font (e.g., Wingdings) for custom markers
+1. **JSON形式はPptxGenJS API形式で出力済み**: プロパティ名の変換は不要、そのまま使用可能
+2. **fontFace**: フォント名プロパティ（font → fontFace に変換済み）
+3. **align/valign**: 配置値は変換済み（"l"/"ctr"/"r" → "left"/"center"/"right", "t"/"m"/"b" → "top"/"middle"/"bottom"）
+4. **fill**: オブジェクト形式 { color: "FFFFFF" } または undefined（空文字列ではない）
+5. **line**: オブジェクト形式 { color: "000000", pt: 1.5 } または undefined
+6. **border**: オブジェクト形式 { top: {pt, color}, right: {pt, color}, bottom: {pt, color}, left: {pt, color} }
+7. **テーブルborderについて**: PptxGenJSのテーブルでは、border配列に変換が必要（実装例参照）
+8. **Colors**: 6-digit RGB hex ("FF0000"=red)
+9. **Units**: All positions/sizes in inches, fonts in points
+10. **Header rows**: hasHeader=true means row 1 is header (already has proper background color)
+11. **Line styles**: "solid", "dash", "dot", "dashDot", "lgDash", "lgDashDot", "sysDash", "sysDot"
+12. **Arrow types**: "none", "arrow", "triangle", "diamond", "oval", "stealth"
+13. **Line breaks**: Text contains "\\n" for line breaks. Use breakLine: true in PptxGenJS addText options
+14. **Bullets**: Use paragraphs array for bullet points. level indicates indent (0=none, 1+=levels). bullet.char with bullet.font (e.g., Wingdings) for custom markers
+15. **Text Runs**: When a paragraph has runs array, use it for precise styling control. Each run has its own color, bold, italic, etc. This is essential for text with mixed styles (e.g., "Complete PoC with **Ichiba & Travel** first" where "Ichiba & Travel" is red and bold)
+16. **Merged Cells**:
+    - **Primary cells** have colspan>1 or rowspan>1 and contain the actual text
+    - **Continuation cells** have hMerge=true or vMerge=true and are typically empty
+    - In PptxGenJS, only specify colspan/rowspan on primary cell (continuation cells are auto-handled)
+    - colspan: horizontal merge (columns), rowspan: vertical merge (rows)
 
 ---
 
@@ -1712,6 +1901,17 @@ lines.forEach(line => {
 \`\`\`json
 ${JSON.stringify(data, null, 2)}
 \`\`\`
+
+---
+
+## Data Extraction Summary
+
+- **Elements**: ${data.elements.length} items
+- **Tables**: ${data.tables.length} tables
+${data.tables.map((t, i) => `  - Table ${i + 1}: ${t.rows.length} rows × ${t.colW.length} columns (${t.rows.reduce((sum, row) => sum + row.cells.length, 0)} total cells)`).join('\n')}
+- **Lines**: ${data.lines.length} lines
+
+✅ **All data extracted completely - every row, cell, and element is included above.**
 
 ---
 

@@ -50,21 +50,55 @@
    - **Scopes**: ✅ **repo**（全てにチェック）
 5. **Generate token** → トークンをコピー（後で見れないので保存）
 
-#### リモートURLの設定
+#### 環境変数の設定（推奨）
+
+トークンを環境変数として設定することで、セキュリティを向上させます。
 
 ```bash
-cd /Users/toshimichi.suzuki/Desktop/Chrome拡張機能/パワポ自動化/既存合体＋API/powerpoint-genAI-update
+# ~/.zshrc に以下を追加
+export GITHUB_TOKEN_POWERPOINT="YOUR_TOKEN"
 
+# 設定を反映
+source ~/.zshrc
+```
+
+#### リモートURLの設定
+
+**方法A: 環境変数を使用（推奨）**
+
+```bash
+cd /Users/toshimichi.suzuki/Desktop/Chrome拡張機能/パワポ自動化/作業用のコピー2/powerpoint-genAI-update
+
+# 環境変数を使ってリモートURLを設定
+git remote set-url origin https://${GITHUB_TOKEN_POWERPOINT}@github.com/toshimichi-rakuten/powerpoint-genAI-update.git
+```
+
+**方法B: トークンを直接指定**
+
+```bash
 # トークンを含めてリモートURLを設定
 git remote set-url origin https://YOUR_TOKEN@github.com/toshimichi-rakuten/powerpoint-genAI-update.git
 ```
 
 **設定例**:
 ```
-https://YOUR_TOKEN@github.com/toshimichi-rakuten/powerpoint-genAI-update.git
+https://ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxx@github.com/toshimichi-rakuten/powerpoint-genAI-update.git
 ```
 
-**注意**: `YOUR_TOKEN` の部分を実際のPersonal Access Tokenに置き換えてください。
+**注意**:
+- `YOUR_TOKEN` の部分を実際のPersonal Access Tokenに置き換えてください
+- トークンは機密情報です。Git履歴に含めないよう注意してください
+- 環境変数を使用する方法が最も安全です
+
+#### 動作確認
+
+```bash
+# リモートURL確認（トークンは表示されます）
+git remote -v
+
+# プッシュテスト
+git push origin main
+```
 
 ### 方法2: SSH鍵（複数アカウント対応）
 
@@ -446,5 +480,6 @@ git revert HEAD
 
 | 日付 | 変更内容 | 担当者 |
 |------|---------|--------|
+| 2025-10-29 | Personal Access Token認証方法の詳細追加、環境変数設定方法を追加 | toshimichi.suzuki |
 | 2025-10-28 | 初版作成 | toshimichi.suzuki |
 

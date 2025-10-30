@@ -1909,7 +1909,8 @@ const JSON_TO_HTML_PREFIX =
                 </div>
               </div>
               <div id="pptx-slide-list"></div>
-              <textarea id="pptx-json-output" readonly style="width:100%;height:200px;font-family:monospace;font-size:11px;white-space:pre;overflow:auto;border:1px solid #ddd;border-radius:4px;padding:8px;box-sizing:border-box;"></textarea>
+              <textarea id="pptx-json-output" readonly style="width:100%;height:400px;font-family:monospace;font-size:11px;white-space:pre;overflow:auto;border:1px solid #ddd;border-radius:4px;padding:8px;box-sizing:border-box;"></textarea>
+              <div style="margin-top:6px;font-size:11px;color:#666;"><em>ℹ️ 表示エリアをスクロールして全データを確認できます。コピーボタンで全データがクリップボードにコピーされます。</em></div>
             </div>
             <div class="csv-modal-actions">
               <div class="csv-modal-actions-left"></div>
@@ -2181,13 +2182,39 @@ const JSON_TO_HTML_PREFIX =
               select.appendChild(option);
             });
 
+            // Create info display for data statistics
+            const infoDiv = document.createElement('div');
+            infoDiv.style.cssText = 'margin:10px 0;padding:8px;background:#f0f7ff;border:1px solid #b3d9ff;border-radius:4px;font-size:12px;color:#333;';
+            infoDiv.id = 'pptx-data-info';
+
             const updateJsonOutput = () => {
               const selectedIndex = parseInt(select.value);
-              pptxJsonOutput.value = result.slides[selectedIndex].promptWithJson;
+              const promptText = result.slides[selectedIndex].promptWithJson;
+              pptxJsonOutput.value = promptText;
+
+              // Calculate and display data statistics
+              const charCount = promptText.length;
+              const tableMatches = promptText.match(/"tables":\s*\[/g);
+              const hasTable = tableMatches && tableMatches.length > 0;
+
+              let totalRows = 0;
+              if (hasTable) {
+                // Count total rows across all tables by counting "h": properties in rows array
+                const rowsMatches = promptText.match(/"rows":\s*\[([\s\S]*?)\]/g);
+                if (rowsMatches) {
+                  rowsMatches.forEach(rowsBlock => {
+                    const rowHeights = rowsBlock.match(/"h":\s*[\d.]+/g);
+                    if (rowHeights) totalRows += rowHeights.length;
+                  });
+                }
+              }
+
+              infoDiv.innerHTML = `📊 データ統計: <strong>${charCount.toLocaleString()}</strong> 文字 | テーブル: <strong>${result.slides[selectedIndex].tableCount}</strong> 個 | テーブル総行数: <strong>${totalRows}</strong> 行 ${totalRows > 0 ? '✅ 全行抽出済み' : ''}`;
             };
 
             select.addEventListener('change', updateJsonOutput);
             pptxSlideList.appendChild(select);
+            pptxSlideList.appendChild(infoDiv);
 
             // Show first slide by default
             updateJsonOutput();
