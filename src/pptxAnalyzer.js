@@ -1829,8 +1829,8 @@ function generatePromptWithJSON(elements, tables, lines, template, slidePath) {
         rows: tbl.rows.map(row => ({
           h: parseFloat(emuToInch(row.height).toFixed(3)),
           isHeader: row.isHeader || false,
-          // 継続セルも含める（グリッド構造を維持するため、rowHの要素数と一致させる）
-          cells: row.cells.map(cell => {
+          // 継続セルをフィルタリング（PptxGenJSはcolspan/rowspanで自動処理するためnullは不要）
+          cells: row.cells.filter(cell => !cell.isMergedContinuation).map(cell => {
             // alignとvalignを変換
             const alignmentMap = { "l": "left", "ctr": "center", "r": "right" };
             const valignMap = { "t": "top", "m": "middle", "b": "bottom" };
