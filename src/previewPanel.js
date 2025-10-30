@@ -2172,14 +2172,124 @@ const JSON_TO_HTML_PREFIX =
           if (result.success) {
             pptxSlideList.innerHTML = `<p>✅ ${result.slideCount}枚のスライドを解析しました</p>`;
 
-            // Show slide selector
+            // Load pptx-preview library for rendering previews
+            console.log('[PPTX Upload] Loading pptx-preview library...');
+            const lib = await loadPptxPreview();
+
+            // Generate preview result for all slides
+            console.log('[PPTX Upload] Generating preview for uploaded PPTX...');
+            const arrayBuffer = await file.arrayBuffer();
+
+            // Create a temporary wrapper to initialize the viewer
+            const tempWrapper = document.createElement('div');
+            tempWrapper.style.cssText = 'position:absolute;top:-10000px;left:-10000px;width:960px;height:540px;';
+            document.body.appendChild(tempWrapper);
+
+            const viewer = lib.init(tempWrapper, {
+              width: 960,
+              height: 540
+            });
+
+            const previewResult = await viewer.preview(arrayBuffer);
+            const totalSlides = previewResult?.slides?.length ?? 0;
+            console.log('[PPTX Upload] Preview generated with', totalSlides, 'slides');
+
+            // Wait a bit for DOM to be ready
+            await new Promise(resolve => setTimeout(resolve, 300));
+
+            // Debug: Log the structure of tempWrapper
+            console.log('[PPTX Upload] tempWrapper children:', tempWrapper.children.length);
+            console.log('[PPTX Upload] tempWrapper innerHTML length:', tempWrapper.innerHTML.length);
+
+            // pptx-preview creates slide wrappers with class 'pptx-preview-slide-wrapper'
+            // and appends an index like 'pptx-preview-slide-wrapper-0', 'pptx-preview-slide-wrapper-1', etc.
+            let slideElements = tempWrapper.querySelectorAll('.pptx-preview-slide-wrapper');
+
+            console.log('[PPTX Upload] Found', slideElements?.length || 0, 'slide elements with .pptx-preview-slide-wrapper');
+
+            // Debug: Log class names of first few slides
+            if (slideElements && slideElements.length > 0) {
+              for (let i = 0; i < Math.min(3, slideElements.length); i++) {
+                console.log(`[PPTX Upload] Slide ${i} classes:`, slideElements[i].className);
+              }
+            }
+
+            // Create slide preview container
+            const previewContainer = document.createElement('div');
+            previewContainer.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px;margin:16px 0;max-height:400px;overflow-y:auto;padding:8px;border:1px solid #ddd;border-radius:8px;background:#f9f9f9;';
+
+            // Create slide selector (kept for backward compatibility, but now with previews)
             const select = document.createElement('select');
             select.style.cssText = 'width:100%;padding:8px;margin:10px 0;font-size:14px;';
-            result.slides.forEach(slide => {
+
+            result.slides.forEach((slide, index) => {
               const option = document.createElement('option');
               option.value = slide.slideNumber - 1;
               option.textContent = `スライド ${slide.slideNumber} (要素:${slide.elementCount}, 表:${slide.tableCount}, 線:${slide.lineCount})`;
               select.appendChild(option);
+
+              // Create preview thumbnail for each slide
+              const slideCard = document.createElement('div');
+              slideCard.style.cssText = 'border:2px solid #ddd;border-radius:8px;overflow:hidden;cursor:pointer;transition:all 0.2s;background:white;';
+              slideCard.dataset.slideIndex = index;
+
+              const thumbnailContainer = document.createElement('div');
+              thumbnailContainer.style.cssText = 'width:100%;aspect-ratio:16/9;position:relative;overflow:hidden;background:#fff;';
+
+              // Use the slideElements found earlier - match by index
+              if (slideElements && slideElements.length > index) {
+                try {
+                  // Get the correct slide element for this index
+                  const slideElement = slideElements[index];
+
+                  // Verify we have the correct element
+                  console.log(`[PPTX Upload] Processing slide ${index + 1}, element class: ${slideElement?.className}`);
+
+                  const slideClone = slideElement.cloneNode(true);
+
+                  // Wrap clone in a scaled container (200px / 960px = 0.208)
+                  const scaleWrapper = document.createElement('div');
+                  scaleWrapper.style.cssText = 'transform:scale(0.21);transform-origin:top left;width:960px;height:540px;pointer-events:none;';
+                  scaleWrapper.appendChild(slideClone);
+                  thumbnailContainer.appendChild(scaleWrapper);
+
+                  console.log('[PPTX Upload] Successfully added preview for slide', index + 1);
+                } catch (err) {
+                  console.error('[PPTX Upload] Error cloning slide', index + 1, err);
+                  thumbnailContainer.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#999;font-size:14px;">スライド ${slide.slideNumber}</div>`;
+                }
+              } else {
+                // Fallback: show placeholder
+                thumbnailContainer.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#999;font-size:14px;">スライド ${slide.slideNumber}</div>`;
+                console.warn(`[PPTX Upload] No slide element found for index ${index}, total slideElements: ${slideElements?.length || 0}`);
+              }
+
+              const label = document.createElement('div');
+              label.style.cssText = 'padding:8px;text-align:center;font-size:12px;background:#f5f5f5;font-weight:500;';
+              label.textContent = `スライド ${slide.slideNumber}`;
+
+              slideCard.appendChild(thumbnailContainer);
+              slideCard.appendChild(label);
+
+              // Click handler to select slide
+              slideCard.onclick = () => {
+                // Update select dropdown
+                select.value = index;
+                select.dispatchEvent(new Event('change'));
+
+                // Update visual selection
+                previewContainer.querySelectorAll('[data-slide-index]').forEach(card => {
+                  card.style.border = '2px solid #ddd';
+                });
+                slideCard.style.border = '2px solid #bf0000';
+              };
+
+              // Highlight first slide by default
+              if (index === 0) {
+                slideCard.style.border = '2px solid #bf0000';
+              }
+
+              previewContainer.appendChild(slideCard);
             });
 
             // Create info display for data statistics
@@ -2191,6 +2301,15 @@ const JSON_TO_HTML_PREFIX =
               const selectedIndex = parseInt(select.value);
               const promptText = result.slides[selectedIndex].promptWithJson;
               pptxJsonOutput.value = promptText;
+
+              // Update visual selection in preview container
+              previewContainer.querySelectorAll('[data-slide-index]').forEach((card, idx) => {
+                if (idx === selectedIndex) {
+                  card.style.border = '2px solid #bf0000';
+                } else {
+                  card.style.border = '2px solid #ddd';
+                }
+              });
 
               // Calculate and display data statistics
               const charCount = promptText.length;
@@ -2213,8 +2332,16 @@ const JSON_TO_HTML_PREFIX =
             };
 
             select.addEventListener('change', updateJsonOutput);
+
+            // Add preview container to the modal
+            pptxSlideList.appendChild(previewContainer);
             pptxSlideList.appendChild(select);
             pptxSlideList.appendChild(infoDiv);
+
+            // Clean up temporary wrapper
+            if (tempWrapper && tempWrapper.parentNode) {
+              tempWrapper.parentNode.removeChild(tempWrapper);
+            }
 
             // Show first slide by default
             updateJsonOutput();
