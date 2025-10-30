@@ -1149,6 +1149,12 @@ function extractTables(doc, themeColors) {
           const hMerge = cell.getAttribute('hMerge');
           const vMerge = cell.getAttribute('vMerge');
 
+          // 継続セル判定 - プレースホルダーとして保持（位置ずれを防ぐため）
+          const isMergedContinuation = (hMerge === '1' || vMerge === '1');
+          if (isMergedContinuation) {
+            console.log(`表${frameIndex} 行${rowIndex} XMLセル${cellIndex}: 結合継続セル - プレースホルダーとして保持`);
+          }
+
           const cellData = {
             text: '',
             style: {
@@ -1177,15 +1183,17 @@ function extractTables(doc, themeColors) {
             // セル結合情報
             colspan: gridSpan ? parseInt(gridSpan) : 1,
             rowspan: rowSpan ? parseInt(rowSpan) : 1,
-            hMerge: hMerge === '1',
-            vMerge: vMerge === '1'
+            // 継続セルフラグ（グリッド位置維持のため重要）
+            isMergedContinuation: isMergedContinuation
           };
 
-          const txBody = Array.from(cell.getElementsByTagName("*")).find(el =>
-            el.tagName.endsWith(":txBody") || el.localName === "txBody"
-          );
+          // 継続セルはテキストを持たない（プレースホルダーのため）
+          if (!isMergedContinuation) {
+            const txBody = Array.from(cell.getElementsByTagName("*")).find(el =>
+              el.tagName.endsWith(":txBody") || el.localName === "txBody"
+            );
 
-          if (txBody) {
+            if (txBody) {
             const paragraphs = Array.from(txBody.getElementsByTagName("*")).filter(el =>
               el.tagName.endsWith(":p") || el.localName === "p"
             );
@@ -1249,6 +1257,7 @@ function extractTables(doc, themeColors) {
               const algn = pPr.getAttribute('algn');
               if (algn) cellData.style.alignment = algn;
             }
+            }
           }
 
           const tcPr = Array.from(cell.getElementsByTagName("*")).find(el =>
@@ -1301,6 +1310,8 @@ function extractTables(doc, themeColors) {
             cellData.borders.bottom = extractBorderInfo(lnB, themeColors);
           }
 
+          // 継続セルもプレースホルダーとして保持（グリッド位置維持のため）
+          // isMergedContinuationフラグで識別可能
           rowData.cells.push(cellData);
         });
 
@@ -1308,7 +1319,7 @@ function extractTables(doc, themeColors) {
       });
 
       tables.push(table);
-      console.log(`表${frameIndex}: ${table.rows.length}行 × ${table.columnWidths.length}列（セル結合含む - 全${table.rows.reduce((sum, row) => sum + row.cells.length, 0)}セル）`);
+      console.log(`表${frameIndex}: ${table.rows.length}行 × ${table.columnWidths.length}列（論理セル数: ${table.rows.reduce((sum, row) => sum + row.cells.length, 0)}セル）`);
 
     } catch (err) {
       console.log(`表${frameIndex}の処理中にエラー:`, err.message);
@@ -1505,7 +1516,8 @@ function generatePromptWithJSON(elements, tables, lines, template, slidePath) {
         rows: tbl.rows.map(row => ({
           h: parseFloat(emuToInch(row.height).toFixed(3)),
           isHeader: row.isHeader || false,
-          cells: row.cells.map(cell => {
+          // 継続セルをフィルタリング（PptxGenJSはcolspan/rowspanで自動処理するためnullは不要）
+          cells: row.cells.filter(cell => !cell.isMergedContinuation).map(cell => {
             // alignとvalignを変換
             const alignmentMap = { "l": "left", "ctr": "center", "r": "right" };
             const valignMap = { "t": "top", "m": "middle", "b": "bottom" };
@@ -1528,9 +1540,8 @@ function generatePromptWithJSON(elements, tables, lines, template, slidePath) {
                 parseFloat(emuToInch(cell.margins?.left || 0).toFixed(3))
               ],
               colspan: cell.colspan || 1,
-              rowspan: cell.rowspan || 1,
-              hMerge: cell.hMerge || false,
-              vMerge: cell.vMerge || false
+              rowspan: cell.rowspan || 1
+              // isMergedContinuation は不要（既にフィルタリング済み）
             };
 
             // fillをオブジェクト形式に
@@ -1578,6 +1589,15 @@ function generatePromptWithJSON(elements, tables, lines, template, slidePath) {
   const prompt = `# PowerPoint Slide Reproduction Task
 
 PptxGenJSで下記のパワポを完全再現して。**位置・サイズ・色・フォント・罫線**全て完璧に。
+
+## 重要な実装ルール
+
+**全てのslide.addXXXメソッド（addText、addTable、addShape、addImageなど）について：**
+- データ（テキストの内容、図形のプロパティ、テーブルのデータなど）を**変数に格納せず**、メソッドの引数として**直接記述**してください
+- 例：
+  - ❌ 間違い: \`let tableData = [[...]]; slide.addTable(tableData, {...});\`
+  - ✅ 正しい: \`slide.addTable([[...]], {...});\`
+- これはコードの可読性と保守性のため、変数宣言を減らし、コードを簡潔にするためです
 
 ## JSON Structure
 
@@ -1663,8 +1683,7 @@ PptxGenJSで下記のパワポを完全再現して。**位置・サイズ・色
     - **margin**: マージン配列[top, right, bottom, left](インチ)
     - **colspan**: 列結合数(1=通常セル, 2以上=複数列にまたがる)
     - **rowspan**: 行結合数(1=通常セル, 2以上=複数行にまたがる)
-    - **hMerge**: 水平結合の継続セル(true=結合されたセルの一部, false=通常セル)
-    - **vMerge**: 垂直結合の継続セル(true=結合されたセルの一部, false=通常セル)
+    - **isMergedContinuation**: 結合継続セルフラグ(true=結合の一部でプレースホルダー, false=通常セルまたは結合主セル)
 
 ### Lines (線・コネクタ)
 
@@ -1889,10 +1908,12 @@ lines.forEach(lineItem => {
 14. **Bullets**: Use paragraphs array for bullet points. level indicates indent (0=none, 1+=levels). bullet.char with bullet.font (e.g., Wingdings) for custom markers
 15. **Text Runs**: When a paragraph has runs array, use it for precise styling control. Each run has its own color, bold, italic, etc. This is essential for text with mixed styles (e.g., "Complete PoC with **Ichiba & Travel** first" where "Ichiba & Travel" is red and bold)
 16. **Merged Cells**:
+    - **All cells are included** in the cells array (including continuation placeholders to maintain grid alignment)
     - **Primary cells** have colspan>1 or rowspan>1 and contain the actual text
-    - **Continuation cells** have hMerge=true or vMerge=true and are typically empty
-    - In PptxGenJS, only specify colspan/rowspan on primary cell (continuation cells are auto-handled)
+    - **Continuation cells** have isMergedContinuation=true and empty text (these are placeholders)
+    - In PptxGenJS, only specify colspan/rowspan on primary cell (skip cells with isMergedContinuation=true)
     - colspan: horizontal merge (columns), rowspan: vertical merge (rows)
+    - Cell indices in the JSON directly correspond to grid positions in the table (maintaining alignment)
 
 ---
 
