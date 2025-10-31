@@ -164,6 +164,11 @@ window.secureStorage = secureStorage;
 const HANDOFF_KEY = 'handoffData';
 const ANNOUNCEMENT_KEY = 'previewAnnouncementState';
 
+// パラメータ定数
+export const PROMPT_PARAM = 'prompt';
+export const PROMPT_LIST_PARAM = 'promptList';
+export const BULK_TEMPLATES_PARAM = 'bulkTemplates';
+
 // secureStorage から一時データを取り出す
 export async function loadPayload() {
   try {

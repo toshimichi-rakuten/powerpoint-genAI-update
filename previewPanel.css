@@ -324,6 +324,15 @@
   overflow-y: auto;
 }
 
+/* バルク入力モード時のテンプレート一覧コンテナ */
+#templates-list.bulk-input-mode {
+  max-height: none;
+  overflow: visible;
+  height: 70vh;
+  display: flex;
+  flex-direction: column;
+}
+
 /* テンプレートアイテム */
 .template-item {
   display: flex;
@@ -445,4 +454,349 @@
   text-align: center;
   padding: 60px 20px;
   color: #999;
+}
+
+/* タグ関連スタイル */
+.template-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+  align-items: center;
+}
+
+.template-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: #f5f5f5;
+  border: 1px solid #e0e0e0;
+  border-radius: 12px;
+  font-size: 12px;
+  color: #666;
+  font-weight: 400;
+}
+
+.template-tag-remove {
+  background: none !important;
+  border: none !important;
+  color: #999 !important;
+  font-size: 14px !important;
+  font-weight: normal !important;
+  cursor: pointer;
+  padding: 0 !important;
+  margin: 0 !important;
+  line-height: 1;
+  transition: color 0.2s;
+  box-shadow: none !important;
+}
+
+.template-tag-remove:hover {
+  color: #333 !important;
+  background: none !important;
+  border: none !important;
+}
+
+.template-tag-add {
+  padding: 0 !important;
+  background: none !important;
+  border: none !important;
+  color: #999 !important;
+  font-size: 12px !important;
+  cursor: pointer;
+  transition: color 0.2s;
+  font-weight: 400 !important;
+  box-shadow: none !important;
+}
+
+.template-tag-add:hover {
+  color: #333 !important;
+  background: none !important;
+  border: none !important;
+}
+
+/* タグフィルターバー */
+#tag-filter-bar {
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.tag-filter-btn {
+  padding: 6px 14px;
+  background: #f0f0f0;
+  color: #333;
+  border: 1px solid #ddd;
+  border-radius: 16px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.2s;
+  font-weight: 400;
+}
+
+.tag-filter-btn:hover {
+  background: #e0e0e0;
+  border-color: #bf0000;
+}
+
+.tag-filter-btn.active {
+  background: #bf0000;
+  color: white;
+  border-color: #bf0000;
+  font-weight: 600;
+}
+
+/* 複数テンプレート選択機能 */
+.template-select-checkbox {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  width: 20px;
+  height: 20px;
+  z-index: 10;
+  cursor: pointer;
+}
+
+.template-item {
+  position: relative;
+}
+
+.template-item.selected {
+  border-color: #bf0000;
+  background: #fff5f5;
+  box-shadow: 0 2px 8px rgba(191, 0, 0, 0.2);
+}
+
+/* 一括アクションエリア */
+.bulk-actions {
+  position: sticky;
+  bottom: 0;
+  background: white;
+  padding: 16px;
+  border-top: 2px solid #bf0000;
+  text-align: center;
+  margin-top: 16px;
+  z-index: 100;
+  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.bulk-actions button {
+  padding: 12px 24px;
+  background: #bf0000;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  transition: all 0.2s;
+}
+
+.bulk-actions button:hover {
+  background: #a00000;
+}
+
+.bulk-actions button:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
+/* 複数テンプレート入力画面 */
+.bulk-input-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  gap: 16px;
+  padding: 16px;
+  padding-bottom: 0;
+}
+
+.bulk-input-common {
+  padding: 16px;
+  background: #f0f8ff;
+  border: 2px solid #007bff;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.bulk-input-common h3 {
+  margin: 0 0 12px 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #007bff;
+}
+
+.bulk-input-common textarea {
+  width: 100%;
+  min-height: 100px;
+  padding: 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.bulk-input-templates-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.bulk-input-templates-wrapper h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #333;
+  flex-shrink: 0;
+}
+
+.bulk-input-templates {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-y: auto;
+  flex: 1;
+  padding: 8px;
+  min-height: 0;
+}
+
+.bulk-template-item {
+  padding: 16px;
+  padding-left: 40px;
+  background: #fafafa;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 16px;
+  cursor: move;
+  transition: all 0.2s;
+  position: relative;
+}
+
+.bulk-template-item:hover {
+  background: #f0f0f0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.bulk-template-item.dragging {
+  opacity: 0.5;
+  cursor: grabbing;
+}
+
+.bulk-template-item.drag-over {
+  border-top: 3px solid #bf0000;
+}
+
+.bulk-template-drag-handle {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  cursor: move;
+  font-size: 20px;
+  color: #999;
+  user-select: none;
+}
+
+.bulk-template-drag-handle:hover {
+  color: #bf0000;
+}
+
+.bulk-template-left {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.bulk-template-preview {
+  width: 160px;
+  height: 90px;
+  flex-shrink: 0;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  overflow: hidden;
+  background: white;
+  position: relative;
+}
+
+.bulk-template-preview iframe {
+  width: 720px;
+  height: 405px;
+  border: none;
+  transform: scale(0.2222);
+  transform-origin: top left;
+  pointer-events: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.bulk-template-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #333;
+  text-align: center;
+}
+
+.bulk-template-item textarea {
+  flex: 1;
+  min-height: 80px;
+  padding: 10px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 13px;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.bulk-input-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 16px;
+  border-top: 2px solid #e0e0e0;
+  position: sticky;
+  bottom: 0;
+  background: white;
+  z-index: 10;
+  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.1);
+  flex-shrink: 0;
+}
+
+.bulk-input-actions button {
+  padding: 12px 32px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 600;
+  transition: all 0.2s;
+}
+
+.bulk-input-actions .back-btn {
+  background: #6c757d;
+  color: white;
+}
+
+.bulk-input-actions .back-btn:hover {
+  background: #5a6268;
+}
+
+.bulk-input-actions .submit-btn {
+  background: #bf0000;
+  color: white;
+}
+
+.bulk-input-actions .submit-btn:hover {
+  background: #a00000;
 }
