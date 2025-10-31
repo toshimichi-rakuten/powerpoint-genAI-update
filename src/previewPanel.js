@@ -31,6 +31,7 @@
     ensureResearchOn,
     ensureWebSearchOff,
     monitorDeepResearchLoading,
+    processBulkTemplates,
     logStep,
     injector,
     findElement,
@@ -48,6 +49,7 @@
     savePanelState,
     handOff,
     loadPayload,
+    BULK_TEMPLATES_PARAM,
   } = await import(chrome.runtime.getURL('src/storage.js'));
   const payload = await loadPayload();
 
@@ -391,6 +393,7 @@ const JSON_TO_HTML_PREFIX =
     HTML_LIST_PARAM: 'htmlSlides',
     PROMPT_PARAM: 'prompt',
     PROMPT_LIST_PARAM: 'promptList',
+    BULK_TEMPLATES_PARAM: BULK_TEMPLATES_PARAM,
     AUTO_DL_PARAM: 'autoDownload',
     DEEP_PARAM: 'deepResearch',
     SEARCH_PARAM: 'searchMode',
@@ -2170,56 +2173,391 @@ const JSON_TO_HTML_PREFIX =
           const result = await analyzePPTX(file);
 
           if (result.success) {
+            // Check file size (50MB = 52428800 bytes)
+            const PREVIEW_SIZE_LIMIT = 52428800;
+            const isLargeFile = file.size > PREVIEW_SIZE_LIMIT;
+            const fileSizeMB = (file.size / 1024 / 1024).toFixed(1);
+
             pptxSlideList.innerHTML = `<p>✅ ${result.slideCount}枚のスライドを解析しました</p>`;
 
-            // Show slide selector
-            const select = document.createElement('select');
-            select.style.cssText = 'width:100%;padding:8px;margin:10px 0;font-size:14px;';
-            result.slides.forEach(slide => {
-              const option = document.createElement('option');
-              option.value = slide.slideNumber - 1;
-              option.textContent = `スライド ${slide.slideNumber} (要素:${slide.elementCount}, 表:${slide.tableCount}, 線:${slide.lineCount})`;
-              select.appendChild(option);
-            });
+            // Function to create real preview with pptx-preview library
+            const createRealPreview = async (progressCallback = null) => {
+              const totalSteps = 5 + result.slideCount; // 5 setup steps + slide count for rendering
+              let currentStep = 0;
 
-            // Create info display for data statistics
-            const infoDiv = document.createElement('div');
-            infoDiv.style.cssText = 'margin:10px 0;padding:8px;background:#f0f7ff;border:1px solid #b3d9ff;border-radius:4px;font-size:12px;color:#333;';
-            infoDiv.id = 'pptx-data-info';
+              const updateProgress = (message) => {
+                currentStep++;
+                if (progressCallback) {
+                  progressCallback(currentStep, totalSteps, message);
+                }
+              };
 
-            const updateJsonOutput = () => {
-              const selectedIndex = parseInt(select.value);
-              const promptText = result.slides[selectedIndex].promptWithJson;
-              pptxJsonOutput.value = promptText;
+              // Load pptx-preview library for rendering previews
+              console.log('[PPTX Upload] Loading pptx-preview library...');
+              updateProgress('ライブラリを読み込んでいます...');
+              const lib = await loadPptxPreview();
 
-              // Calculate and display data statistics
-              const charCount = promptText.length;
-              const tableMatches = promptText.match(/"tables":\s*\[/g);
-              const hasTable = tableMatches && tableMatches.length > 0;
+              // Generate preview result for all slides
+              console.log('[PPTX Upload] Generating preview for uploaded PPTX...');
+              updateProgress('PPTXファイルを解析しています...');
+              const arrayBuffer = await file.arrayBuffer();
 
-              let totalRows = 0;
-              if (hasTable) {
-                // Count total rows across all tables by counting "h": properties in rows array
-                const rowsMatches = promptText.match(/"rows":\s*\[([\s\S]*?)\]/g);
-                if (rowsMatches) {
-                  rowsMatches.forEach(rowsBlock => {
-                    const rowHeights = rowsBlock.match(/"h":\s*[\d.]+/g);
-                    if (rowHeights) totalRows += rowHeights.length;
-                  });
+              // Create a temporary wrapper to initialize the viewer
+              updateProgress('プレビューを初期化しています...');
+              const tempWrapper = document.createElement('div');
+              tempWrapper.style.cssText = 'position:absolute;top:-10000px;left:-10000px;width:960px;height:540px;';
+              document.body.appendChild(tempWrapper);
+
+              const viewer = lib.init(tempWrapper, {
+                width: 960,
+                height: 540
+              });
+
+              updateProgress('スライドをレンダリングしています...');
+              const previewResult = await viewer.preview(arrayBuffer);
+              const totalSlides = previewResult?.slides?.length ?? 0;
+              console.log('[PPTX Upload] Preview generated with', totalSlides, 'slides');
+
+              // Wait a bit for DOM to be ready
+              await new Promise(resolve => setTimeout(resolve, 300));
+
+              // Debug: Log the structure of tempWrapper
+              console.log('[PPTX Upload] tempWrapper children:', tempWrapper.children.length);
+              console.log('[PPTX Upload] tempWrapper innerHTML length:', tempWrapper.innerHTML.length);
+
+              // pptx-preview creates slide wrappers with class 'pptx-preview-slide-wrapper'
+              // and appends an index like 'pptx-preview-slide-wrapper-0', 'pptx-preview-slide-wrapper-1', etc.
+              updateProgress('スライド要素を取得しています...');
+              let slideElements = tempWrapper.querySelectorAll('.pptx-preview-slide-wrapper');
+
+              console.log('[PPTX Upload] Found', slideElements?.length || 0, 'slide elements with .pptx-preview-slide-wrapper');
+
+              // Debug: Log class names of first few slides
+              if (slideElements && slideElements.length > 0) {
+                for (let i = 0; i < Math.min(3, slideElements.length); i++) {
+                  console.log(`[PPTX Upload] Slide ${i} classes:`, slideElements[i].className);
                 }
               }
 
-              infoDiv.innerHTML = `📊 データ統計: <strong>${charCount.toLocaleString()}</strong> 文字 | テーブル: <strong>${result.slides[selectedIndex].tableCount}</strong> 個 | テーブル総行数: <strong>${totalRows}</strong> 行 ${totalRows > 0 ? '✅ 全行抽出済み' : ''}`;
+              // Create slide preview container
+              const previewContainer = document.createElement('div');
+              previewContainer.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px;margin:16px 0;max-height:400px;overflow-y:auto;padding:8px;border:1px solid #ddd;border-radius:8px;background:#f9f9f9;';
+              previewContainer.id = 'pptx-preview-container';
+
+              // Create slide selector (kept for backward compatibility, but now with previews)
+              const select = document.createElement('select');
+              select.style.cssText = 'width:100%;padding:8px;margin:10px 0;font-size:14px;';
+
+              result.slides.forEach((slide, index) => {
+                const option = document.createElement('option');
+                option.value = slide.slideNumber - 1;
+                option.textContent = `スライド ${slide.slideNumber} (要素:${slide.elementCount}, 表:${slide.tableCount}, 線:${slide.lineCount})`;
+                select.appendChild(option);
+
+                // Create preview thumbnail for each slide
+                const slideCard = document.createElement('div');
+                slideCard.style.cssText = 'border:2px solid #ddd;border-radius:8px;overflow:hidden;cursor:pointer;transition:all 0.2s;background:white;';
+                slideCard.dataset.slideIndex = index;
+
+                const thumbnailContainer = document.createElement('div');
+                thumbnailContainer.style.cssText = 'width:100%;aspect-ratio:16/9;position:relative;overflow:hidden;background:#fff;';
+
+                // Use the slideElements found earlier - match by index
+                if (slideElements && slideElements.length > index) {
+                  try {
+                    // Get the correct slide element for this index
+                    const slideElement = slideElements[index];
+
+                    // Verify we have the correct element
+                    console.log(`[PPTX Upload] Processing slide ${index + 1}, element class: ${slideElement?.className}`);
+
+                    const slideClone = slideElement.cloneNode(true);
+
+                    // Update progress for each slide processed
+                    updateProgress(`スライド ${index + 1}/${result.slideCount} を処理中...`);
+
+                    // Wrap clone in a scaled container (200px / 960px = 0.208)
+                    const scaleWrapper = document.createElement('div');
+                    scaleWrapper.style.cssText = 'transform:scale(0.21);transform-origin:top left;width:960px;height:540px;pointer-events:none;';
+                    scaleWrapper.appendChild(slideClone);
+                    thumbnailContainer.appendChild(scaleWrapper);
+
+                    console.log('[PPTX Upload] Successfully added preview for slide', index + 1);
+                  } catch (err) {
+                    console.error('[PPTX Upload] Error cloning slide', index + 1, err);
+                    thumbnailContainer.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#999;font-size:14px;">スライド ${slide.slideNumber}</div>`;
+                  }
+                } else {
+                  // Fallback: show placeholder
+                  thumbnailContainer.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#999;font-size:14px;">スライド ${slide.slideNumber}</div>`;
+                  console.warn(`[PPTX Upload] No slide element found for index ${index}, total slideElements: ${slideElements?.length || 0}`);
+                }
+
+                const label = document.createElement('div');
+                label.style.cssText = 'padding:8px;text-align:center;font-size:12px;background:#f5f5f5;font-weight:500;';
+                label.textContent = `スライド ${slide.slideNumber}`;
+
+                slideCard.appendChild(thumbnailContainer);
+                slideCard.appendChild(label);
+
+                // Click handler to select slide
+                slideCard.onclick = () => {
+                  // Update select dropdown
+                  select.value = index;
+                  select.dispatchEvent(new Event('change'));
+
+                  // Update visual selection
+                  previewContainer.querySelectorAll('[data-slide-index]').forEach(card => {
+                    card.style.border = '2px solid #ddd';
+                  });
+                  slideCard.style.border = '2px solid #bf0000';
+                };
+
+                // Highlight first slide by default
+                if (index === 0) {
+                  slideCard.style.border = '2px solid #bf0000';
+                }
+
+                previewContainer.appendChild(slideCard);
+              });
+
+              // Create info display for data statistics
+              const infoDiv = document.createElement('div');
+              infoDiv.style.cssText = 'margin:10px 0;padding:8px;background:#f0f7ff;border:1px solid #b3d9ff;border-radius:4px;font-size:12px;color:#333;';
+              infoDiv.id = 'pptx-data-info';
+
+              const updateJsonOutput = () => {
+                const selectedIndex = parseInt(select.value);
+                const promptText = result.slides[selectedIndex].promptWithJson;
+                pptxJsonOutput.value = promptText;
+
+                // Update visual selection in preview container
+                previewContainer.querySelectorAll('[data-slide-index]').forEach((card, idx) => {
+                  if (idx === selectedIndex) {
+                    card.style.border = '2px solid #bf0000';
+                  } else {
+                    card.style.border = '2px solid #ddd';
+                  }
+                });
+
+                // Calculate and display data statistics
+                const charCount = promptText.length;
+                const tableMatches = promptText.match(/"tables":\s*\[/g);
+                const hasTable = tableMatches && tableMatches.length > 0;
+
+                let totalRows = 0;
+                if (hasTable) {
+                  // Count total rows across all tables by counting "h": properties in rows array
+                  const rowsMatches = promptText.match(/"rows":\s*\[([\s\S]*?)\]/g);
+                  if (rowsMatches) {
+                    rowsMatches.forEach(rowsBlock => {
+                      const rowHeights = rowsBlock.match(/"h":\s*[\d.]+/g);
+                      if (rowHeights) totalRows += rowHeights.length;
+                    });
+                  }
+                }
+
+                infoDiv.innerHTML = `📊 データ統計: <strong>${charCount.toLocaleString()}</strong> 文字 | テーブル: <strong>${result.slides[selectedIndex].tableCount}</strong> 個 | テーブル総行数: <strong>${totalRows}</strong> 行 ${totalRows > 0 ? '✅ 全行抽出済み' : ''}`;
+              };
+
+              select.addEventListener('change', updateJsonOutput);
+
+              // Add preview container to the modal
+              pptxSlideList.appendChild(previewContainer);
+              pptxSlideList.appendChild(select);
+              pptxSlideList.appendChild(infoDiv);
+
+              // Clean up temporary wrapper
+              if (tempWrapper && tempWrapper.parentNode) {
+                tempWrapper.parentNode.removeChild(tempWrapper);
+              }
+
+              // Show first slide by default
+              updateJsonOutput();
+              pptxCopyBtn.style.display = 'inline-block';
+              pptxSendBtn.style.display = 'inline-block';
             };
 
-            select.addEventListener('change', updateJsonOutput);
-            pptxSlideList.appendChild(select);
-            pptxSlideList.appendChild(infoDiv);
+            // Function to create dummy preview (for large files)
+            const createDummyPreview = () => {
+              // Create warning message
+              const warningDiv = document.createElement('div');
+              warningDiv.style.cssText = 'margin:16px 0;padding:12px;background:#fff3cd;border:1px solid #ffc107;border-radius:8px;color:#856404;font-size:14px;';
+              warningDiv.innerHTML = `⚠️ ファイルサイズが大きい (${fileSizeMB} MB) のでプレビュー表示を省略します`;
 
-            // Show first slide by default
-            updateJsonOutput();
-            pptxCopyBtn.style.display = 'inline-block';
-            pptxSendBtn.style.display = 'inline-block';
+              // Create "Load anyway" button
+              const loadAnywayBtn = document.createElement('button');
+              loadAnywayBtn.type = 'button';
+              loadAnywayBtn.style.cssText = 'margin:8px 0;padding:8px 16px;background:#bf0000;color:white;border:none;border-radius:4px;cursor:pointer;font-size:14px;font-weight:500;';
+              loadAnywayBtn.textContent = '🔄 重くてもプレビューを読み込む';
+
+              loadAnywayBtn.onclick = async () => {
+                loadAnywayBtn.disabled = true;
+                loadAnywayBtn.textContent = '読み込み中...';
+                loadAnywayBtn.style.background = '#999';
+
+                // Create progress bar
+                const progressContainer = document.createElement('div');
+                progressContainer.style.cssText = 'margin:16px 0;padding:16px;background:#f9f9f9;border:1px solid #ddd;border-radius:8px;';
+                progressContainer.id = 'pptx-load-progress';
+
+                const progressLabel = document.createElement('div');
+                progressLabel.style.cssText = 'margin-bottom:8px;font-size:14px;color:#333;font-weight:500;';
+                progressLabel.textContent = 'プレビューを読み込んでいます...';
+
+                const progressBarBg = document.createElement('div');
+                progressBarBg.style.cssText = 'width:100%;height:24px;background:#e0e0e0;border-radius:12px;overflow:hidden;position:relative;';
+
+                const progressBarFill = document.createElement('div');
+                progressBarFill.style.cssText = 'width:0%;height:100%;background:linear-gradient(90deg, #bf0000 0%, #ff4444 100%);transition:width 0.3s ease;position:relative;';
+
+                const progressText = document.createElement('div');
+                progressText.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:#333;z-index:1;';
+                progressText.textContent = '0%';
+
+                progressBarBg.appendChild(progressBarFill);
+                progressBarBg.appendChild(progressText);
+                progressContainer.appendChild(progressLabel);
+                progressContainer.appendChild(progressBarBg);
+
+                // Insert progress bar after button
+                loadAnywayBtn.parentNode.insertBefore(progressContainer, loadAnywayBtn.nextSibling);
+
+                // Clear existing dummy preview
+                const existingContainer = pptxSlideList.querySelector('#pptx-preview-container');
+                if (existingContainer) existingContainer.remove();
+
+                warningDiv.remove();
+                loadAnywayBtn.remove();
+
+                // Progress callback function
+                const updateProgress = (current, total, message) => {
+                  const percent = Math.round((current / total) * 100);
+                  progressBarFill.style.width = `${percent}%`;
+                  progressText.textContent = `${percent}%`;
+                  if (message) {
+                    progressLabel.textContent = message;
+                  }
+                };
+
+                // Load real preview with progress updates
+                await createRealPreview(updateProgress);
+
+                // Remove progress bar after completion
+                if (progressContainer && progressContainer.parentNode) {
+                  progressContainer.remove();
+                }
+              };
+
+              // Create dummy preview container
+              const previewContainer = document.createElement('div');
+              previewContainer.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px;margin:16px 0;max-height:400px;overflow-y:auto;padding:8px;border:1px solid #ddd;border-radius:8px;background:#f9f9f9;';
+              previewContainer.id = 'pptx-preview-container';
+
+              // Create slide selector
+              const select = document.createElement('select');
+              select.style.cssText = 'width:100%;padding:8px;margin:10px 0;font-size:14px;';
+
+              result.slides.forEach((slide, index) => {
+                const option = document.createElement('option');
+                option.value = slide.slideNumber - 1;
+                option.textContent = `スライド ${slide.slideNumber} (要素:${slide.elementCount}, 表:${slide.tableCount}, 線:${slide.lineCount})`;
+                select.appendChild(option);
+
+                // Create dummy thumbnail for each slide
+                const slideCard = document.createElement('div');
+                slideCard.style.cssText = 'border:2px solid #ddd;border-radius:8px;overflow:hidden;cursor:pointer;transition:all 0.2s;background:white;';
+                slideCard.dataset.slideIndex = index;
+
+                const thumbnailContainer = document.createElement('div');
+                thumbnailContainer.style.cssText = 'width:100%;aspect-ratio:16/9;position:relative;overflow:hidden;background:#e0e0e0;display:flex;align-items:center;justify-content:center;';
+                thumbnailContainer.innerHTML = `<div style="text-align:center;color:#666;font-size:14px;">スライド ${slide.slideNumber}</div>`;
+
+                const label = document.createElement('div');
+                label.style.cssText = 'padding:8px;text-align:center;font-size:12px;background:#f5f5f5;font-weight:500;';
+                label.textContent = `スライド ${slide.slideNumber}`;
+
+                slideCard.appendChild(thumbnailContainer);
+                slideCard.appendChild(label);
+
+                // Click handler to select slide
+                slideCard.onclick = () => {
+                  select.value = index;
+                  select.dispatchEvent(new Event('change'));
+
+                  previewContainer.querySelectorAll('[data-slide-index]').forEach(card => {
+                    card.style.border = '2px solid #ddd';
+                  });
+                  slideCard.style.border = '2px solid #bf0000';
+                };
+
+                // Highlight first slide by default
+                if (index === 0) {
+                  slideCard.style.border = '2px solid #bf0000';
+                }
+
+                previewContainer.appendChild(slideCard);
+              });
+
+              // Create info display
+              const infoDiv = document.createElement('div');
+              infoDiv.style.cssText = 'margin:10px 0;padding:8px;background:#f0f7ff;border:1px solid #b3d9ff;border-radius:4px;font-size:12px;color:#333;';
+              infoDiv.id = 'pptx-data-info';
+
+              const updateJsonOutput = () => {
+                const selectedIndex = parseInt(select.value);
+                const promptText = result.slides[selectedIndex].promptWithJson;
+                pptxJsonOutput.value = promptText;
+
+                previewContainer.querySelectorAll('[data-slide-index]').forEach((card, idx) => {
+                  if (idx === selectedIndex) {
+                    card.style.border = '2px solid #bf0000';
+                  } else {
+                    card.style.border = '2px solid #ddd';
+                  }
+                });
+
+                const charCount = promptText.length;
+                const tableMatches = promptText.match(/"tables":\s*\[/g);
+                const hasTable = tableMatches && tableMatches.length > 0;
+
+                let totalRows = 0;
+                if (hasTable) {
+                  const rowsMatches = promptText.match(/"rows":\s*\[([\s\S]*?)\]/g);
+                  if (rowsMatches) {
+                    rowsMatches.forEach(rowsBlock => {
+                      const rowHeights = rowsBlock.match(/"h":\s*[\d.]+/g);
+                      if (rowHeights) totalRows += rowHeights.length;
+                    });
+                  }
+                }
+
+                infoDiv.innerHTML = `📊 データ統計: <strong>${charCount.toLocaleString()}</strong> 文字 | テーブル: <strong>${result.slides[selectedIndex].tableCount}</strong> 個 | テーブル総行数: <strong>${totalRows}</strong> 行 ${totalRows > 0 ? '✅ 全行抽出済み' : ''}`;
+              };
+
+              select.addEventListener('change', updateJsonOutput);
+
+              // Add elements to modal
+              pptxSlideList.appendChild(warningDiv);
+              pptxSlideList.appendChild(loadAnywayBtn);
+              pptxSlideList.appendChild(previewContainer);
+              pptxSlideList.appendChild(select);
+              pptxSlideList.appendChild(infoDiv);
+
+              // Show first slide by default
+              updateJsonOutput();
+              pptxCopyBtn.style.display = 'inline-block';
+              pptxSendBtn.style.display = 'inline-block';
+            };
+
+            // Decide which preview to create based on file size
+            if (isLargeFile) {
+              console.log(`[PPTX Upload] Large file detected (${fileSizeMB} MB), creating dummy preview`);
+              createDummyPreview();
+            } else {
+              console.log(`[PPTX Upload] File size OK (${fileSizeMB} MB), creating real preview`);
+              await createRealPreview();
+            }
           } else {
             pptxSlideList.innerHTML = `<p style="color:red;">❌ エラー: ${result.error}</p>`;
           }
@@ -4133,55 +4471,367 @@ const JSON_TO_HTML_PREFIX =
       new Date(b.createdAt) - new Date(a.createdAt)
     );
 
-    templatesList.innerHTML = sortedTemplates.map(template => `
-      <div class="template-item" data-id="${template.id}">
-        <div class="template-thumbnail-container">
-          ${template.previewHtml ? `
-            <iframe
-              class="template-thumbnail"
-              srcdoc="${escapeSrcdoc(template.previewHtml)}"
-              sandbox="allow-same-origin"
-              scrolling="no"
-            ></iframe>
-          ` : `
-            <div class="template-thumbnail-placeholder">
-              <span style="font-size:64px;">📊</span>
+    // バルク入力モードのクラスを削除
+    templatesList.classList.remove('bulk-input-mode');
+
+    templatesList.innerHTML = `
+      <div id="templates-items-container">
+        ${sortedTemplates.map(template => `
+          <div class="template-item" data-id="${template.id}">
+            <input type="checkbox" class="template-select-checkbox" data-id="${template.id}">
+            <div class="template-thumbnail-container">
+              ${template.previewHtml ? `
+                <iframe
+                  class="template-thumbnail"
+                  srcdoc="${escapeSrcdoc(template.previewHtml)}"
+                  sandbox="allow-same-origin"
+                  scrolling="no"
+                ></iframe>
+              ` : `
+                <div class="template-thumbnail-placeholder">
+                  <span style="font-size:64px;">📊</span>
+                </div>
+              `}
             </div>
-          `}
-        </div>
-        <div class="template-content">
-          <div class="template-header">
-            <h3 class="template-name">${escapeHtml(template.name)}</h3>
-            <span class="template-date">${formatTemplateDate(template.createdAt)}</span>
+            <div class="template-content">
+              <div class="template-header">
+                <h3 class="template-name">${escapeHtml(template.name)}</h3>
+                <span class="template-date">${formatTemplateDate(template.createdAt)}</span>
+              </div>
+              <div class="template-info">
+                <span>📝 ${template.code.length} 文字</span>
+              </div>
+              <div class="template-actions">
+                <button class="delete-template-btn" data-id="${template.id}" data-i18n="templateDelete">削除</button>
+              </div>
+            </div>
           </div>
-          <div class="template-info">
-            <span>📝 ${template.code.length} 文字</span>
-          </div>
-          <div class="template-actions">
-            <button class="use-template-btn" data-id="${template.id}" data-i18n="templateUse">使用する</button>
-            <button class="delete-template-btn" data-id="${template.id}" data-i18n="templateDelete">削除</button>
-          </div>
-        </div>
+        `).join('')}
       </div>
-    `).join('');
+      <div class="bulk-actions" style="display:none;">
+        <button id="bulk-use-templates-btn">選択したテンプレートを一括流し込み (0個選択)</button>
+        <button id="bulk-clear-selection-btn" style="background:#6c757d;margin-left:8px;">選択を解除</button>
+      </div>
+    `;
 
     // 翻訳を適用
     applyTranslations(templatesList);
 
-    // イベントリスナーを追加
-    document.querySelectorAll('.use-template-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const id = e.target.dataset.id;
-        useTemplate(id);
+    // チェックボックスのイベントリスナー
+    document.querySelectorAll('.template-select-checkbox').forEach(checkbox => {
+      checkbox.addEventListener('change', updateBulkActionButton);
+
+      // チェックボックスのクリックイベントが親要素に伝播しないように
+      checkbox.addEventListener('click', (e) => {
+        e.stopPropagation();
       });
     });
 
+    // テンプレートアイテム全体のクリックでチェックボックスを切り替え
+    document.querySelectorAll('.template-item').forEach(item => {
+      item.addEventListener('click', (e) => {
+        // ボタンのクリックは除外
+        if (e.target.closest('.delete-template-btn')) {
+          return;
+        }
+
+        const checkbox = item.querySelector('.template-select-checkbox');
+        if (checkbox) {
+          checkbox.checked = !checkbox.checked;
+          updateBulkActionButton();
+        }
+      });
+    });
+
+    // 削除ボタンのイベントリスナー
     document.querySelectorAll('.delete-template-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
+        e.stopPropagation(); // 親要素のクリックイベントを防ぐ
         const id = e.target.dataset.id;
         deleteTemplate(id);
       });
     });
+
+    // 一括流し込みボタンのイベントリスナー
+    const bulkBtn = document.querySelector('#bulk-use-templates-btn');
+    if (bulkBtn) {
+      bulkBtn.addEventListener('click', useBulkTemplates);
+    }
+
+    // 選択解除ボタンのイベントリスナー
+    const clearBtn = document.querySelector('#bulk-clear-selection-btn');
+    if (clearBtn) {
+      clearBtn.addEventListener('click', () => {
+        document.querySelectorAll('.template-select-checkbox').forEach(checkbox => {
+          checkbox.checked = false;
+        });
+        updateBulkActionButton();
+      });
+    }
+  }
+
+  // 一括アクションボタンの表示を更新
+  function updateBulkActionButton() {
+    const checkboxes = document.querySelectorAll('.template-select-checkbox:checked');
+    const bulkActions = document.querySelector('.bulk-actions');
+    const bulkBtn = document.querySelector('#bulk-use-templates-btn');
+
+    if (!bulkActions || !bulkBtn) return;
+
+    const count = checkboxes.length;
+
+    if (count > 0) {
+      bulkActions.style.display = 'block';
+      if (count === 1) {
+        bulkBtn.textContent = '使用する';
+      } else {
+        bulkBtn.textContent = `選択したテンプレートを一括流し込み (${count}個選択)`;
+      }
+
+      // 選択されたカードにselectedクラスを追加
+      document.querySelectorAll('.template-item').forEach(item => {
+        const checkbox = item.querySelector('.template-select-checkbox');
+        if (checkbox && checkbox.checked) {
+          item.classList.add('selected');
+        } else {
+          item.classList.remove('selected');
+        }
+      });
+    } else {
+      bulkActions.style.display = 'none';
+      document.querySelectorAll('.template-item').forEach(item => {
+        item.classList.remove('selected');
+      });
+    }
+  }
+
+  // 複数テンプレートを一括で使用
+  async function useBulkTemplates() {
+    const checkboxes = document.querySelectorAll('.template-select-checkbox:checked');
+    const selectedIds = Array.from(checkboxes).map(cb => cb.dataset.id);
+
+    if (selectedIds.length === 0) {
+      alert('テンプレートを選択してください');
+      return;
+    }
+
+    // 1つだけ選択されている場合は、既存のuseTemplate()を使用
+    if (selectedIds.length === 1) {
+      useTemplate(selectedIds[0]);
+      return;
+    }
+
+    const templates = await getTemplates();
+    const selectedTemplates = templates.filter(t => selectedIds.includes(t.id));
+
+    if (selectedTemplates.length === 0) {
+      alert('選択されたテンプレートが見つかりません');
+      return;
+    }
+
+    showBulkTemplateInputUI(selectedTemplates);
+  }
+
+  // 複数テンプレート用の入力UIを表示
+  function showBulkTemplateInputUI(templates) {
+    const templatesList = document.querySelector('#templates-list');
+    if (!templatesList) return;
+
+    // バルク入力モードのクラスを追加してスクロール動作を変更
+    templatesList.classList.add('bulk-input-mode');
+
+    templatesList.innerHTML = `
+      <div class="bulk-input-container">
+        <div class="bulk-input-common">
+          <h3>📝 全テンプレート共通の指示</h3>
+          <textarea id="bulk-common-input" placeholder="すべてのテンプレートに適用される共通の指示を入力してください..."></textarea>
+        </div>
+
+        <div class="bulk-input-templates-wrapper">
+          <h3>各テンプレートの個別指示（オプション）</h3>
+          <div class="bulk-input-templates" id="bulk-templates-container">
+            ${templates.map((template, index) => `
+              <div class="bulk-template-item" data-id="${template.id}" draggable="true">
+                <span class="bulk-template-drag-handle" title="ドラッグして順番を変更">⋮⋮</span>
+                <div class="bulk-template-left">
+                  ${template.previewHtml ? `
+                    <div class="bulk-template-preview">
+                      <iframe
+                        srcdoc="${escapeSrcdoc(template.previewHtml)}"
+                        sandbox="allow-same-origin"
+                        scrolling="no"
+                      ></iframe>
+                    </div>
+                  ` : ''}
+                  <div class="bulk-template-title">
+                    <span class="template-order">${index + 1}</span>. ${escapeHtml(template.name)}
+                  </div>
+                </div>
+                <textarea
+                  class="bulk-individual-input"
+                  data-id="${template.id}"
+                  placeholder="このテンプレート固有の追加指示を入力（任意）..."
+                ></textarea>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+
+        <div class="bulk-input-actions">
+          <button type="button" id="bulk-input-back-btn" class="back-btn">← 戻る</button>
+          <button type="button" id="bulk-input-submit-btn" class="submit-btn">流し込み開始 (${templates.length}個)</button>
+        </div>
+      </div>
+    `;
+
+    // ドラッグ&ドロップの実装
+    const container = document.querySelector('#bulk-templates-container');
+    let draggedElement = null;
+
+    const templateItems = container.querySelectorAll('.bulk-template-item');
+    templateItems.forEach(item => {
+      item.addEventListener('dragstart', (e) => {
+        draggedElement = item;
+        item.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+      });
+
+      item.addEventListener('dragend', (e) => {
+        item.classList.remove('dragging');
+        // すべてのdrag-overクラスを削除
+        container.querySelectorAll('.drag-over').forEach(el => {
+          el.classList.remove('drag-over');
+        });
+        draggedElement = null;
+        // 順番を更新
+        updateTemplateOrder();
+      });
+
+      item.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+
+        if (draggedElement && draggedElement !== item) {
+          // ドラッグ中の要素を挿入する位置を決定
+          const rect = item.getBoundingClientRect();
+          const midpoint = rect.top + rect.height / 2;
+
+          if (e.clientY < midpoint) {
+            // 上半分にドロップする場合は前に挿入
+            item.classList.add('drag-over');
+          } else {
+            item.classList.remove('drag-over');
+          }
+        }
+      });
+
+      item.addEventListener('dragleave', (e) => {
+        item.classList.remove('drag-over');
+      });
+
+      item.addEventListener('drop', (e) => {
+        e.preventDefault();
+
+        if (draggedElement && draggedElement !== item) {
+          const rect = item.getBoundingClientRect();
+          const midpoint = rect.top + rect.height / 2;
+
+          if (e.clientY < midpoint) {
+            // 上半分にドロップ = 前に挿入
+            container.insertBefore(draggedElement, item);
+          } else {
+            // 下半分にドロップ = 後ろに挿入
+            container.insertBefore(draggedElement, item.nextSibling);
+          }
+        }
+
+        item.classList.remove('drag-over');
+      });
+    });
+
+    // 順番番号を更新する関数
+    function updateTemplateOrder() {
+      const items = container.querySelectorAll('.bulk-template-item');
+      items.forEach((item, index) => {
+        const orderSpan = item.querySelector('.template-order');
+        if (orderSpan) {
+          orderSpan.textContent = index + 1;
+        }
+      });
+    }
+
+    // 戻るボタンのイベントリスナー
+    const backBtn = document.querySelector('#bulk-input-back-btn');
+    if (backBtn) {
+      backBtn.onclick = () => {
+        loadTemplatesList();
+      };
+    }
+
+    // 流し込み開始ボタンのイベントリスナー
+    const submitBtn = document.querySelector('#bulk-input-submit-btn');
+    if (submitBtn) {
+      submitBtn.onclick = async () => {
+        const commonInput = document.querySelector('#bulk-common-input').value.trim();
+
+        if (!commonInput) {
+          alert('共通の指示を入力してください');
+          return;
+        }
+
+        // 現在のDOM順序でテンプレートを収集（ドラッグ&ドロップで並び替えられている）
+        const orderedItems = Array.from(container.querySelectorAll('.bulk-template-item'));
+        const templateInputs = orderedItems.map(item => {
+          const templateId = item.dataset.id;
+          const template = templates.find(t => t.id === templateId);
+          const individualInput = item.querySelector('.bulk-individual-input');
+
+          return {
+            template: template,
+            commonText: commonInput,
+            individualText: individualInput ? individualInput.value.trim() : ''
+          };
+        });
+
+        await createWithMultipleTemplates(templateInputs);
+      };
+    }
+  }
+
+  // 複数テンプレートとテキストを組み合わせてAIに一括送信
+  async function createWithMultipleTemplates(templateInputs) {
+    try {
+      console.log('[Bulk Templates] Starting bulk creation with', templateInputs.length, 'templates');
+
+      // モーダルを閉じる
+      closeTemplatesModal();
+
+      // 各テンプレートのプロンプトを作成
+      const messages = templateInputs.map(input => {
+        const { template, commonText, individualText } = input;
+
+        // 共通指示 + 個別指示 + PptxGenJSコード
+        let combinedPrompt = commonText;
+
+        if (individualText) {
+          combinedPrompt += `\n\n【追加の指示】\n${individualText}`;
+        }
+
+        combinedPrompt += `\n\n以下のPptxgenjsコードをベースに使用してください：\n\`\`\`javascript\n${template.code}\n\`\`\``;
+
+        return {
+          templateId: template.id,
+          templateName: template.name,
+          prompt: combinedPrompt
+        };
+      });
+
+      // handOff関数を使用して既存の仕組みに統一
+      await handOff({ bulkTemplates: messages }, app.CHAT_URL);
+    } catch (error) {
+      console.error('[Bulk Templates] エラー:', error);
+      alert(`エラーが発生しました: ${error.message}`);
+    }
   }
 
   // テンプレートモーダルを閉じる
@@ -5024,6 +5674,8 @@ const JSON_TO_HTML_PREFIX =
     showWaitOverlay,
     showProgress,
     updateProgressMessage,
+    updateProgress,
+    hideProgress,
     scheduleAutoDownload,
     monitorHtmlRender,
     extractSlidesJson,

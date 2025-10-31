@@ -657,6 +657,36 @@ export function autoSendPrompt() {
   try {
     const p = app.payload || {};
     console.log('[autoSendPrompt] payload:', p);
+
+    // 一括テンプレート処理をチェック
+    const bulkTemplates = p[app.BULK_TEMPLATES_PARAM];
+    if (bulkTemplates && Array.isArray(bulkTemplates)) {
+      console.log('[autoSendPrompt] Bulk templates detected, processing', bulkTemplates.length, 'templates');
+
+      // テキストボックスが見つかるまで待機してから一括処理を開始
+      let waited = false;
+      const timer = setInterval(async () => {
+        if (injector.isProcessing) return;
+        const box = findElement('div[contenteditable="true"][role="textbox"]');
+        if (!box) {
+          if (!waited) {
+            console.log('[autoSendPrompt] textbox not found, waiting...');
+            waited = true;
+          }
+          return;
+        }
+        console.log('[autoSendPrompt] textbox found, starting bulk template processing');
+        clearInterval(timer);
+
+        // 一括テンプレート処理を開始
+        processBulkTemplates(bulkTemplates).catch(e => {
+          console.error('[autoSendPrompt] Bulk template processing error:', e);
+        });
+      }, 100);
+
+      return;
+    }
+
     console.log('[autoSendPrompt] PROMPT_PARAM:', app.PROMPT_PARAM);
     console.log('[autoSendPrompt] PROMPT_LIST_PARAM:', app.PROMPT_LIST_PARAM);
     const enc = p[app.PROMPT_PARAM];
@@ -792,6 +822,112 @@ export async function sendSlidesFromJson() {
     logStep('スライド送信が完了しました');
   } catch (e) {
     console.error('sendSlidesFromJson error', e);
+  } finally {
+    injector.isProcessing = false;
+  }
+}
+
+// 複数テンプレートを一括で送信する（payloadから受け取る）
+export async function processBulkTemplates(messages) {
+  try {
+    if (!messages || messages.length === 0) {
+      console.log('[Bulk Templates] No messages to send');
+      return;
+    }
+
+    console.log('[Bulk Templates] Starting bulk template processing', messages.length, 'templates');
+
+    // 設定を初期化
+    injector.config = {
+      messages: [],
+      selectors: {
+        textbox: 'div[contenteditable="true"][role="textbox"]',
+        button: 'button[type="submit"], button:last-of-type'
+      },
+      delays: {
+        beforeInput: 100,
+        afterInput: 100,
+        beforeSend: 100,
+        afterSend: 50,
+        betweenMessages: 100
+      },
+      useEnterKey: true,
+      debug: false
+    };
+
+    injector.shouldStop = false;
+    injector.isProcessing = true;
+
+    // Webサーチオフを確実に実行
+    await ensureWebSearchOff();
+    await ensureResearchOff();
+
+    const results = {
+      success: 0,
+      failed: 0,
+      errors: []
+    };
+
+    const total = messages.length;
+
+    for (let i = 0; i < messages.length; i++) {
+      if (injector.shouldStop) {
+        console.log('[Bulk Templates] Stopped by user');
+        break;
+      }
+
+      const messageData = messages[i];
+      const templateName = messageData.templateName || `テンプレート${i + 1}`;
+      const currentIndex = i + 1;
+
+      try {
+        console.log(`[Bulk Templates] Processing ${currentIndex}/${total}: ${templateName}`);
+        logStep(`テンプレート${currentIndex}「${templateName}」を送信中...(${currentIndex}/${total}個)`);
+
+        // メッセージ送信（Webサーチオフ）
+        await sendSingleMessage(messageData.prompt, false, false);
+
+        // AI回答待機中のメッセージを表示
+        logStep(`AI回答待機中...`);
+
+        // AI回答完了を待機
+        await waitForAnswerComplete();
+
+        logStep(`テンプレート${currentIndex}「${templateName}」完了`);
+        console.log(`[Bulk Templates] Completed ${currentIndex}/${total}: ${templateName}`);
+        results.success++;
+
+        // 次のメッセージまで待機
+        if (i < messages.length - 1) {
+          await sleep(injector.config.delays.betweenMessages);
+        }
+
+      } catch (error) {
+        console.error(`[Bulk Templates] Error processing template ${templateName}:`, error);
+        logStep(`テンプレート${currentIndex}「${templateName}」でエラー: ${error.message}`);
+        results.failed++;
+        results.errors.push({
+          templateName: templateName,
+          error: error.message
+        });
+
+        // エラーが出ても次のテンプレートを処理
+        await sleep(500);
+      }
+    }
+
+    console.log('[Bulk Templates] Bulk processing completed', results);
+    logStep(`一括流し込み完了 - 成功: ${results.success}個、失敗: ${results.failed}個`);
+
+    // エラーがあった場合のみアラート表示
+    if (results.failed > 0) {
+      const errorDetails = results.errors.map(e => `・${e.templateName}: ${e.error}`).join('\n');
+      alert(`一括流し込みでエラーが発生しました\n\n成功: ${results.success}個\n失敗: ${results.failed}個\n\nエラー詳細:\n${errorDetails}`);
+    }
+
+  } catch (error) {
+    console.error('[Bulk Templates] Critical error:', error);
+    alert(`一括流し込み中に予期しないエラーが発生しました: ${error.message}`);
   } finally {
     injector.isProcessing = false;
   }
