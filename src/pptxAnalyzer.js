@@ -1507,7 +1507,358 @@ function extractSingleTable(frame, frameIndex, themeColors) {
     }
 }
 
-// 表抽出関数 - グループ外の表のみ
+// チャートXMLファイルを読み込む
+async function loadChartXML(zip, chartPath) {
+  try {
+    const chartFile = zip.file(chartPath);
+    if (!chartFile) {
+      console.log(`チャートファイルが見つかりません: ${chartPath}`);
+      return null;
+    }
+    const xmlStr = await chartFile.async("string");
+    const parser = new DOMParser();
+    return parser.parseFromString(xmlStr, "application/xml");
+  } catch (err) {
+    console.log(`チャートXMLの読み込みエラー: ${err.message}`);
+    return null;
+  }
+}
+
+// チャートデータを抽出する
+function extractChartData(chartDoc, themeColors) {
+  try {
+    const chartData = {
+      chartType: "",
+      series: [],
+      legend: {},
+      axes: {},
+      specialProperties: {}
+    };
+
+    // チャート種類を特定
+    const plotArea = chartDoc.getElementsByTagNameNS("*", "plotArea")[0];
+    if (!plotArea) return chartData;
+
+    const chartTypes = [
+      "barChart", "lineChart", "pieChart", "doughnutChart",
+      "areaChart", "scatterChart", "radarChart"
+    ];
+
+    let chartElement = null;
+    for (const type of chartTypes) {
+      const elements = plotArea.getElementsByTagNameNS("*", type);
+      if (elements.length > 0) {
+        chartElement = elements[0];
+        chartData.chartType = type.replace("Chart", "");
+        break;
+      }
+    }
+
+    if (!chartElement) {
+      console.log("サポートされているチャート種類が見つかりません");
+      return chartData;
+    }
+
+    // 棒グラフの方向を取得
+    if (chartData.chartType === "bar") {
+      const barDir = chartElement.getElementsByTagNameNS("*", "barDir")[0];
+      if (barDir) {
+        const direction = barDir.getAttribute("val");
+        chartData.specialProperties.direction = direction; // "bar" = 横棒, "col" = 縦棒
+      }
+    }
+
+    // ドーナツチャートの穴サイズを取得
+    if (chartData.chartType === "doughnut") {
+      const holeSize = chartElement.getElementsByTagNameNS("*", "holeSize")[0];
+      if (holeSize) {
+        chartData.specialProperties.holeSize = parseInt(holeSize.getAttribute("val") || "50");
+      }
+    }
+
+    // データシリーズを抽出
+    const serElements = chartElement.getElementsByTagNameNS("*", "ser");
+    if (!serElements || serElements.length === 0) {
+      console.log("データシリーズが見つかりません");
+      return chartData;
+    }
+    Array.from(serElements).forEach((ser, serIndex) => {
+      const series = {
+        index: serIndex,
+        name: "",
+        categories: [],
+        values: [],
+        colors: []
+      };
+
+      // シリーズ名を取得
+      const txElement = ser.getElementsByTagNameNS("*", "tx")[0];
+      if (txElement) {
+        const strCache = txElement.getElementsByTagNameNS("*", "strCache")[0];
+        if (strCache) {
+          const pts = strCache.getElementsByTagNameNS("*", "pt");
+          if (pts.length > 0) {
+            const vElement = pts[0].getElementsByTagNameNS("*", "v")[0];
+            if (vElement) series.name = vElement.textContent.trim();
+          }
+        }
+      }
+
+      // カテゴリラベルを取得
+      const catElement = ser.getElementsByTagNameNS("*", "cat")[0];
+      if (catElement) {
+        const strRef = catElement.getElementsByTagNameNS("*", "strRef")[0];
+        if (strRef) {
+          const strCache = strRef.getElementsByTagNameNS("*", "strCache")[0];
+          if (strCache) {
+            const pts = strCache.getElementsByTagNameNS("*", "pt");
+            Array.from(pts).forEach(pt => {
+              const vElement = pt.getElementsByTagNameNS("*", "v")[0];
+              if (vElement) {
+                series.categories.push(vElement.textContent.trim());
+              }
+            });
+          }
+        }
+      }
+
+      // データ値を取得
+      const valElement = ser.getElementsByTagNameNS("*", "val")[0];
+      if (valElement) {
+        const numRef = valElement.getElementsByTagNameNS("*", "numRef")[0];
+        if (numRef) {
+          const numCache = numRef.getElementsByTagNameNS("*", "numCache")[0];
+          if (numCache) {
+            const pts = numCache.getElementsByTagNameNS("*", "pt");
+            Array.from(pts).forEach(pt => {
+              const vElement = pt.getElementsByTagNameNS("*", "v")[0];
+              if (vElement) {
+                const value = parseFloat(vElement.textContent.trim());
+                series.values.push(isNaN(value) ? 0 : value);
+              }
+            });
+          }
+        }
+      }
+
+      // ステップ1: シリーズレベルの色を取得（全データポイントに適用される色）
+      const serSpPr = ser.getElementsByTagNameNS("*", "spPr")[0];
+      let seriesLevelColor = null;
+
+      if (serSpPr) {
+        const solidFill = serSpPr.getElementsByTagNameNS("*", "solidFill")[0];
+        if (solidFill) {
+          seriesLevelColor = extractColor(solidFill, themeColors);
+        }
+      }
+
+      // シリーズレベルの色がある場合、全データポイントにその色を適用
+      if (seriesLevelColor && series.values.length > 0) {
+        for (let i = 0; i < series.values.length; i++) {
+          series.colors.push(seriesLevelColor);
+        }
+      }
+
+      // ステップ2: 個別データポイントの色を取得（シリーズレベルの色を上書き）
+      const dPts = ser.getElementsByTagNameNS("*", "dPt");
+      if (dPts && dPts.length > 0) {
+        Array.from(dPts).forEach(dPt => {
+          const idxElements = dPt.getElementsByTagNameNS("*", "idx");
+          const idx = idxElements && idxElements.length > 0 ? parseInt(idxElements[0].getAttribute("val") || "0") : 0;
+          const spPr = dPt.getElementsByTagNameNS("*", "spPr")[0];
+          if (spPr) {
+            const solidFill = spPr.getElementsByTagNameNS("*", "solidFill")[0];
+            if (solidFill) {
+              const color = extractColor(solidFill, themeColors);
+              // インデックス位置に色を設定（シリーズレベルの色を上書き）
+              while (series.colors.length <= idx) {
+                series.colors.push("");
+              }
+              series.colors[idx] = color;
+            }
+          }
+        });
+      }
+
+      chartData.series.push(series);
+    });
+
+    // 凡例の位置を取得
+    const legend = chartDoc.getElementsByTagNameNS("*", "legend")[0];
+    if (legend) {
+      const legendPos = legend.getElementsByTagNameNS("*", "legendPos")[0];
+      if (legendPos) {
+        chartData.legend.position = legendPos.getAttribute("val") || "r"; // r=right, b=bottom, etc.
+      }
+    }
+
+    // 軸情報を取得（棒グラフ、折れ線グラフなど）
+    const catAx = plotArea.getElementsByTagNameNS("*", "catAx")[0];
+    const valAx = plotArea.getElementsByTagNameNS("*", "valAx")[0];
+
+    if (valAx) {
+      const scaling = valAx.getElementsByTagNameNS("*", "scaling")[0];
+      if (scaling) {
+        const max = scaling.getElementsByTagNameNS("*", "max")[0];
+        const min = scaling.getElementsByTagNameNS("*", "min")[0];
+        if (max) chartData.axes.maxValue = parseFloat(max.getAttribute("val"));
+        if (min) chartData.axes.minValue = parseFloat(min.getAttribute("val"));
+      }
+    }
+
+    return chartData;
+  } catch (err) {
+    console.log(`チャートデータ抽出エラー: ${err.message}`);
+    return { chartType: "", series: [], legend: {}, axes: {}, specialProperties: {} };
+  }
+}
+
+// 単一チャートの抽出
+async function extractSingleChart(frame, frameIndex, zip, slidePath, themeColors) {
+  try {
+    const chart = {
+      index: frameIndex,
+      position: { x: 0, y: 0 },
+      size: { width: 0, height: 0 },
+      chartType: "",
+      series: [],
+      legend: {},
+      axes: {},
+      specialProperties: {}
+    };
+
+    // 位置とサイズを取得
+    const xfrm = Array.from(frame.getElementsByTagName("*")).find(el =>
+      el.tagName.endsWith(":xfrm") || el.localName === "xfrm"
+    );
+
+    if (xfrm && xfrm.children) {
+      const off = Array.from(xfrm.children).find(el =>
+        el.tagName && (el.tagName.endsWith(":off") || el.localName === "off")
+      );
+      const ext = Array.from(xfrm.children).find(el =>
+        el.tagName && (el.tagName.endsWith(":ext") || el.localName === "ext")
+      );
+
+      if (off) {
+        chart.position.x = emuToInch(parseInt(off.getAttribute("x") || "0"));
+        chart.position.y = emuToInch(parseInt(off.getAttribute("y") || "0"));
+      }
+      if (ext) {
+        chart.size.width = emuToInch(parseInt(ext.getAttribute("cx") || "0"));
+        chart.size.height = emuToInch(parseInt(ext.getAttribute("cy") || "0"));
+      }
+    }
+
+    // チャート参照を取得
+    const chartElement = frame.getElementsByTagNameNS("*", "chart")[0];
+    if (!chartElement) {
+      return null; // チャートではない
+    }
+
+    const chartRId = chartElement.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id");
+    if (!chartRId) {
+      console.log("チャートのリレーションIDが見つかりません");
+      return null;
+    }
+
+    // リレーションシップファイルを読み込む
+    const relsPath = slidePath.replace(/slides\/slide(\d+)\.xml/, 'slides/_rels/slide$1.xml.rels');
+    const relsFile = zip.file(relsPath);
+    if (!relsFile) {
+      console.log(`リレーションシップファイルが見つかりません: ${relsPath}`);
+      return chart;
+    }
+
+    const relsXml = await relsFile.async("string");
+    const relsParser = new DOMParser();
+    const relsDoc = relsParser.parseFromString(relsXml, "application/xml");
+
+    const relsElements = relsDoc.getElementsByTagName("Relationship");
+    if (!relsElements) {
+      console.log("Relationshipタグが見つかりません");
+      return chart;
+    }
+    const rels = Array.from(relsElements);
+    const chartRel = rels.find(r => r.getAttribute("Id") === chartRId);
+
+    if (!chartRel) {
+      console.log(`チャートのリレーションが見つかりません: ${chartRId}`);
+      return chart;
+    }
+
+    const chartTarget = chartRel.getAttribute("Target");
+    // チャートパスを正しく構築: ../charts/chart1.xml → ppt/charts/chart1.xml
+    const chartPath = chartTarget.startsWith('../')
+      ? 'ppt/' + chartTarget.substring(3)  // ../ を除去して ppt/ を前置
+      : slidePath.replace(/slides\/slide\d+\.xml/, '') + chartTarget;
+
+    // チャートXMLを読み込んでデータを抽出
+    const chartDoc = await loadChartXML(zip, chartPath);
+    if (chartDoc) {
+      const chartData = extractChartData(chartDoc, themeColors);
+      chart.chartType = chartData.chartType || "";
+      chart.series = chartData.series || [];
+      chart.legend = chartData.legend || {};
+      chart.axes = chartData.axes || {};
+      chart.specialProperties = chartData.specialProperties || {};
+      console.log(`チャート${frameIndex}: ${chart.chartType} (${chart.series.length}シリーズ)`);
+    } else {
+      console.log(`チャート${frameIndex}: チャートXMLの読み込みに失敗`);
+    }
+
+    return chart;
+
+  } catch (err) {
+    console.log(`チャート${frameIndex}の処理中にエラー:`, err.message);
+    console.log(err.stack);
+    return null;
+  }
+}
+
+// 表・チャート抽出関数 - グループ外の表とチャートを抽出
+async function extractGraphicFrames(doc, zip, slidePath, themeColors) {
+  const tables = [];
+  const charts = [];
+  const graphicFrames = Array.from(doc.getElementsByTagNameNS("*", "graphicFrame"));
+
+  console.log(`${graphicFrames.length}個のgraphicFrame要素を発見`);
+
+  for (let frameIndex = 0; frameIndex < graphicFrames.length; frameIndex++) {
+    const frame = graphicFrames[frameIndex];
+
+    // グループ内の要素は除外
+    const parent = frame.parentElement;
+    const parentTag = parent ? (parent.tagName || parent.localName) : null;
+    if (parentTag && (parentTag.endsWith(':grpSp') || parentTag === 'grpSp')) {
+      continue;  // グループ内はスキップ
+    }
+
+    // 表かチャートかを判定
+    const graphicData = frame.getElementsByTagNameNS("*", "graphicData")[0];
+    if (graphicData) {
+      const uri = graphicData.getAttribute("uri");
+
+      if (uri && uri.includes("/chart")) {
+        // チャートの場合
+        const chart = await extractSingleChart(frame, charts.length, zip, slidePath, themeColors);
+        if (chart) {
+          charts.push(chart);
+        }
+      } else if (uri && uri.includes("/table")) {
+        // 表の場合
+        const table = extractSingleTable(frame, tables.length, themeColors);
+        if (table) {
+          tables.push(table);
+        }
+      }
+    }
+  }
+
+  return { tables, charts };
+}
+
+// 後方互換性のため、extractTables()関数を残す（内部でextractGraphicFramesを呼ぶ）
 function extractTables(doc, themeColors) {
   const tables = [];
   const graphicFrames = Array.from(doc.getElementsByTagNameNS("*", "graphicFrame"));
@@ -1773,7 +2124,7 @@ async function extractGroups(doc, themeColors, masterStyles, zip, slidePath) {
 }
 
 // AI用プロンプト付きJSON生成関数
-function generatePromptWithJSON(elements, tables, lines, template, slidePath) {
+function generatePromptWithJSON(elements, tables, lines, charts, template, slidePath) {
   const data = {
     slide: slidePath.split('/').pop().replace('.xml', ''),
     template: template,
@@ -1925,6 +2276,25 @@ function generatePromptWithJSON(elements, tables, lines, template, slidePath) {
           endArrowType: line.arrowEnd !== "none" ? line.arrowEnd : undefined
         }
       };
+    }),
+    charts: charts.map((chart, index) => {
+      return {
+        id: index + 1,
+        x: parseFloat(chart.position.x.toFixed(3)),
+        y: parseFloat(chart.position.y.toFixed(3)),
+        w: parseFloat(chart.size.width.toFixed(3)),
+        h: parseFloat(chart.size.height.toFixed(3)),
+        chartType: chart.chartType,
+        series: chart.series.map(s => ({
+          name: s.name,
+          categories: s.categories || [],
+          values: s.values || [],
+          colors: (s.colors || []).filter(c => c !== "").map(c => normalizeColorHex(c))
+        })),
+        legend: chart.legend || {},
+        axes: chart.axes || {},
+        specialProperties: chart.specialProperties || {}
+      };
     })
   };
 
@@ -1950,7 +2320,8 @@ PptxGenJSで下記のパワポを完全再現して。**位置・サイズ・色
   "template": {template info},  // テンプレート情報
   "elements": [{shape data}],   // 図形・テキストボックス
   "tables": [{table data}],     // 表
-  "lines": [{line data}]        // 線・コネクタ
+  "lines": [{line data}],       // 線・コネクタ
+  "charts": [{chart data}]      // グラフ・チャート
 }
 \`\`\`
 
@@ -2040,6 +2411,27 @@ PptxGenJSで下記のパワポを完全再現して。**位置・サイズ・色
   - **dashType**: 線のスタイル("solid"=実線, "dash"=破線, "dot"=点線, "dashDot"=一点鎖線, "lgDash"=長い破線, "sysDot"=システム点線など)
   - **beginArrowType**: 開始側の矢印("arrow"=矢印, "triangle"=三角, "diamond"=菱形, "oval"=丸など、なしの場合はundefined)
   - **endArrowType**: 終了側の矢印(同上、なしの場合はundefined)
+
+### Charts (グラフ・チャート)
+
+各チャート（すべてPptxGenJS API形式で出力済み）:
+- **id**: ID
+- **x, y**: 位置(インチ)
+- **w, h**: サイズ(インチ)
+- **chartType**: チャート種類("bar"=棒グラフ, "line"=折れ線グラフ, "pie"=円グラフ, "doughnut"=ドーナツグラフ, など)
+- **series**: データシリーズ配列
+  - **name**: シリーズ名
+  - **categories**: カテゴリラベル配列
+  - **values**: データ値配列
+  - **colors**: データポイントの色配列(RGB hex)
+- **legend**: 凡例設定
+  - **position**: 凡例位置("r"=右, "b"=下, "t"=上, "l"=左)
+- **axes**: 軸設定
+  - **maxValue**: 最大値（値軸）
+  - **minValue**: 最小値（値軸）
+- **specialProperties**: チャート固有のプロパティ
+  - **direction**: 棒グラフの方向("bar"=横棒, "col"=縦棒) ※chartType="bar"の場合のみ
+  - **holeSize**: 穴のサイズ(0-100) ※chartType="doughnut"の場合のみ
 
 ---
 
@@ -2310,8 +2702,10 @@ ${JSON.stringify(data, null, 2)}
 - **Tables**: ${data.tables.length} tables
 ${data.tables.map((t, i) => `  - Table ${i + 1}: ${t.rows.length} rows × ${t.colW.length} columns (${t.rows.reduce((sum, row) => sum + row.cells.length, 0)} total cells)`).join('\n')}
 - **Lines**: ${data.lines.length} lines
+- **Charts**: ${data.charts.length} charts
+${data.charts.map((c, i) => `  - Chart ${i + 1}: ${c.chartType} (${c.series.length} series, ${c.series.reduce((sum, s) => sum + s.values.length, 0)} data points)`).join('\n')}
 
-✅ **All data extracted completely - every row, cell, and element is included above.**
+✅ **All data extracted completely - every row, cell, element, and chart is included above.**
 
 ---
 
@@ -2370,12 +2764,17 @@ export async function analyzePPTX(file) {
       const tables = extractTables(doc, themeColors);
       const lines = extractLines(doc, themeColors);
 
+      // 表とチャートを抽出（新しい統合関数を使用）
+      const graphicFramesData = await extractGraphicFrames(doc, zip, slidePath, themeColors);
+      const charts = graphicFramesData.charts;
+
       // グループ化された要素と非グループ化要素を結合
       const allElements = [...elements, ...groupElements.elements];
       const allTables = [...tables, ...groupElements.tables];
       const allLines = [...lines, ...groupElements.lines];
+      const allCharts = charts; // グループ内チャートは現状未対応
 
-      const promptWithJson = generatePromptWithJSON(allElements, allTables, allLines, template, slidePath);
+      const promptWithJson = generatePromptWithJSON(allElements, allTables, allLines, allCharts, template, slidePath);
 
       results.push({
         slideNumber: parseInt(slidePath.match(/slide(\d+)\.xml/i)[1], 10),
@@ -2383,7 +2782,8 @@ export async function analyzePPTX(file) {
         promptWithJson: promptWithJson,
         elementCount: allElements.length,
         tableCount: allTables.length,
-        lineCount: allLines.length
+        lineCount: allLines.length,
+        chartCount: allCharts.length
       });
     }
 

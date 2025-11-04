@@ -4323,7 +4323,9 @@ const JSON_TO_HTML_PREFIX =
         const newTemplate = {
           id: Date.now().toString(),
           name: templateName,
-          code: maskedCode,
+          originalCode: code, // マスキング前のオリジナルコード（PowerPoint保存・AI送信用）
+          maskedCode: maskedCode, // マスキング後のコード（APIプレビュー用）
+          code: maskedCode, // 後方互換性のため保持
           previewHtml: maskedPreviewHtml, // マスキング版プレビューHTMLを保存
           originalCodeLength: code.length,
           tags: Array.from(selectedTags), // 選択されたタグを配列として保存
@@ -4671,6 +4673,9 @@ const JSON_TO_HTML_PREFIX =
       // モーダルを閉じる
       closeTemplatesModal();
 
+      // マスキング前のオリジナルコードを使用（後方互換性のため template.code にフォールバック）
+      const codeToUse = template.originalCode || template.code;
+
       // テンプレートコードとユーザー入力を組み合わせたプロンプトを作成
       const combinedPrompt = `下記のPptxgenjsを参考にデザインは全く変えずに#全体指示に従ってコンテンツだけを書き換えてください。
 
@@ -4680,7 +4685,7 @@ ${inputText}
 #参照情報
 下記のPptxgenjsのデザインやレイアウトは変えないでください。コンテンツだけを上記に置き換えてください。
 \`\`\`javascript
-${template.code}
+${codeToUse}
 \`\`\``;
 
       // AIチャットに送信
@@ -5215,6 +5220,12 @@ ${template.code}
       const messages = templateInputs.map(input => {
         const { template, commonText, individualText } = input;
 
+<<<<<<< HEAD
+=======
+        // マスキング前のオリジナルコードを使用（後方互換性のため template.code にフォールバック）
+        const codeToUse = template.originalCode || template.code;
+
+>>>>>>> 71df29a (chore: Update project files and configurations)
         // 新しいプロンプト形式: 全体指示 + 個別指示 + PptxGenJSコード
         let combinedPrompt = `下記のPptxgenjsを参考にデザインは全く変えずに#全体指示と#個別指示に従ってコンテンツだけを書き換えてください。
 
@@ -5233,7 +5244,7 @@ ${individualText}`;
 #参照情報
 下記のPptxgenjsのデザインやレイアウトは変えないでください。コンテンツだけを上記に置き換えてください。
 \`\`\`javascript
-${template.code}
+${codeToUse}
 \`\`\``;
 
         return {
