@@ -26,5 +26,12 @@ test_*.js
 # Temporary folders
 temp_*/
 
+# Output files
+output/
+output.txt
+
 # Generated PowerPoint files
 *.pptx
+
+# Documentation (development only)
+*_SUMMARY.md
